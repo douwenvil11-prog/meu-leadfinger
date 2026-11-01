@@ -1,38 +1,43 @@
 import streamlit as st
-import googlemaps
+import requests
 import pandas as pd
 
-# Configuração da página (igual ao layout do seu print)
 st.set_page_config(page_title="LeadFinder Brasil", layout="wide")
 st.title("🔍 LeadFinder - Empresas sem Site no Brasil")
 
-# Campo para colocar a chave da API do Google
 api_key = st.sidebar.text_input("Insira sua Google Maps API Key:", type="password")
 
 if api_key:
-    gmaps = googlemaps.Client(key=api_key)
-
-    # Campos de busca
     st.sidebar.markdown("### Filtros de Busca")
     termo = st.sidebar.text_input("O que você procura? (Ex: barbearia)", "barbearia")
     local = st.sidebar.text_input("Onde? (Ex: São Paulo, SP)", "São Paulo, SP")
-    
+
     if st.sidebar.button("Pesquisar Empresas"):
         with st.spinner('Buscando empresas no Google Maps...'):
             try:
-                # Faz a busca no Google Places
-                resultados = gmaps.places(query=f"{termo} em {local}")
-                
+                url = "https://places.googleapis.com/v1/places:searchText"
+                headers = {
+                    'Content-Type': 'application/json',
+                    'X-Goog-Api-Key': api_key,
+                    'X-Goog-FieldMask': 'places.displayName,places.formattedAddress,places.nationalPhoneNumber,places.websiteUri'
+                }
+                payload = {
+                    "textQuery": f"{termo} em {local}",
+                    "maxResultCount": 20
+                }
+
+                response = requests.post(url, json=payload, headers=headers)
+                data = response.json()
+
                 leads = []
-                
-                # Filtra apenas as empresas que NÃO têm site
-                for empresa in resultados.get('results', []):
-                    nome = empresa.get('name')
-                    endereco = empresa.get('formatted_address')
-                    telefone = empresa.get('formatted_phone_number', 'Não informado')
-                    tem_site = 'website' in empresa
-                    
-                    # O pulo do gato: só adiciona na lista se NÃO tiver site
+                places = data.get('places', [])
+
+                for empresa in places:
+                    nome = empresa.get('displayName', {}).get('text', 'Sem nome')
+                    endereco = empresa.get('formattedAddress', 'Endereço não informado')
+                    telefone = empresa.get('nationalPhoneNumber', 'Não informado')
+                    tem_site = 'websiteUri' in empresa
+
                     if not tem_site:
                         leads.append({
                             "Nome da Empresa": nome,
@@ -40,16 +45,14 @@ if api_key:
                             "Telefone": telefone,
                             "Possui Site?": "❌ Não"
                         })
-                
-                # Exibe os resultados na tela igual ao seu print
+
                 st.subheader(f"Resultados da busca: {termo} em {local}")
                 st.write(f"**{len(leads)} empresas encontradas sem site.**")
-                
+
                 if leads:
                     df = pd.DataFrame(leads)
                     st.dataframe(df, use_container_width=True)
-                    
-                    # Botão para baixar os leads
+
                     csv = df.to_csv(index=False).encode('utf-8')
                     st.download_button(
                         label="📥 Baixar Leads em CSV",
@@ -59,8 +62,8 @@ if api_key:
                     )
                 else:
                     st.warning("Nenhuma empresa sem site encontrada nessa busca.")
-                    
+
             except Exception as e:
-                st.error(f"Erro na busca: Verifique sua API Key. Detalhes: {e}")
+                st.error(f"Erro na busca: {e}")
 else:
     st.info("👈 Por favor, insira sua Google Maps API Key na barra lateral esquerda para começar.")
