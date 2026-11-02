@@ -7,46 +7,50 @@ st.set_page_config(page_title="LeadFinder PRO", layout="wide", page_icon="🚀")
 # --- LISTA DE ESTADOS E CIDADES ---
 CIDADES_BR = {
     "São Paulo": ["São Paulo", "Campinas", "Santos", "Ribeirão Preto"],
-    "Rio de Janeiro": ["Rio de Janeiro", "Niterói", "Nova Iguaçu", "Campos dos Goytacazes"],
-    "Minas Gerais": ["Belo Horizonte", "Uberlândia", "Contagem", "Juiz de Fora"],
+    "Rio de Janeiro": ["Rio de Janeiro", "Niterói", "Nova Iguaçu"],
+    "Minas Gerais": ["Belo Horizonte", "Uberlândia", "Contagem"],
     "Piauí": ["Teresina", "Parnaíba", "Picos", "Timon"],
     "Maranhão": ["São Luís", "Imperatriz", "Timon", "Caxias"],
-    "Bahia": ["Salvador", "Feira de Santana", "Vitória da Conquista", "Camaçari"],
-    "Paraná": ["Curitiba", "Londrina", "Maringá", "Ponta Grossa"],
-    "Ceará": ["Fortaleza", "Caucaia", "Juazeiro do Norte", "Sobral"],
+    "Bahia": ["Salvador", "Feira de Santana", "Vitória da Conquista"],
+    "Paraná": ["Curitiba", "Londrina", "Maringá"],
+    "Ceará": ["Fortaleza", "Caucaia", "Juazeiro do Norte"],
     "Goiás": ["Goiânia", "Aparecida de Goiânia", "Anápolis"],
     "Outro": ["Digitar manualmente"]
 }
 
-st.title("🚀 LeadFinder PRO - Prospecção Inteligente")
-st.write("Encontre empresas sem site, gere abordagens perfeitas e crie sites com Inteligência Artificial.")
+st.title("🚀 LeadFinder PRO - Prospecção Premium")
+st.write("Encontre empresas sem site, gere abordagens e crie prompts de design de alto nível.")
 
-# --- BARRA LATERAL ---
-api_key = st.sidebar.text_input("Insira sua Google Maps API Key:", type="password")
+# --- LÓGICA DA CHAVE DE API (SALVA NOS SECRETS) ---
+if "GOOGLE_API_KEY" in st.secrets:
+    api_key = st.secrets["GOOGLE_API_KEY"]
+else:
+    api_key = st.sidebar.text_input("Insira sua Google Maps API Key:", type="password")
 
 if api_key:
     st.sidebar.markdown("### 🤖 Sua Agência")
-    nome_agencia = st.sidebar.text_input("Nome da sua agência/nome:", "Minha Agência Digital")
+    nome_agencia = st.sidebar.text_input("Nome da sua agência:", "Nexo Sites")
     
     st.sidebar.markdown("### 📍 Filtros de Busca")
-    termo = st.sidebar.text_input("Qual o nicho? (Ex: pizzaria, lava jato, barbearia)", "barbearia")
+    termo = st.sidebar.text_input("Nicho (Ex: barbearia, academia)", "barbearia")
     
-    estado = st.sidebar.selectbox("Selecione o Estado:", list(CIDADES_BR.keys()))
-    
+    estado = st.sidebar.selectbox("Estado:", list(CIDADES_BR.keys()))
     if estado == "Outro":
-        cidade = st.sidebar.text_input("Digite a cidade e o estado:", "Sua Cidade, UF")
+        cidade = st.sidebar.text_input("Digite a cidade:", "Sua Cidade, UF")
     else:
-        cidade = st.sidebar.selectbox("Selecione a Cidade:", CIDADES_BR[estado])
+        cidade = st.sidebar.selectbox("Cidade:", CIDADES_BR[estado])
 
-    # --- BOTÃO DE PESQUISA ---
+    # Filtro para evitar empresas gigantes
+    filtro_tamanho = st.sidebar.checkbox("Filtrar empresas médias/pequenas (< 300 avaliações)", value=True)
+
     if st.sidebar.button("Pesquisar Empresas", type="primary", use_container_width=True):
-        with st.spinner('Buscando empresas no Google Maps...'):
+        with st.spinner('Buscando empresas...'):
             try:
                 url = "https://places.googleapis.com/v1/places:searchText"
                 headers = {
                     'Content-Type': 'application/json',
                     'X-Goog-Api-Key': api_key,
-                    'X-Goog-FieldMask': 'places.displayName,places.formattedAddress,places.nationalPhoneNumber,places.websiteUri,places.googleMapsUri,places.currentOpeningHours.openNow'
+                    'X-Goog-FieldMask': 'places.displayName,places.formattedAddress,places.nationalPhoneNumber,places.websiteUri,places.googleMapsUri,places.currentOpeningHours.openNow,places.userRatingCount,places.rating'
                 }
                 payload = {"textQuery": f"{termo} em {cidade}, {estado}", "maxResultCount": 20}
 
@@ -54,10 +58,17 @@ if api_key:
                 data = response.json()
                 places = data.get('places', [])
                 
-                # Filtra apenas os que NÃO têm site
-                leads = [p for p in places if 'websiteUri' not in p]
+                leads = []
+                for p in places:
+                    # Filtra os que NÃO têm site
+                    if 'websiteUri' not in p:
+                        qtd_avaliacoes = p.get('userRatingCount', 0)
+                        # Se o filtro estiver ativo, ignora empresas com mais de 300 avaliações
+                        if filtro_tamanho and qtd_avaliacoes > 300:
+                            continue
+                        leads.append(p)
 
-                st.subheader(f"Resultados: {len(leads)} empresas sem site em {cidade}")
+                st.subheader(f"Resultados: {len(leads)} empresas sem site encontradas.")
 
                 if leads:
                     for empresa in leads:
@@ -65,92 +76,84 @@ if api_key:
                         endereco = empresa.get('formattedAddress', 'Endereço não informado')
                         telefone = empresa.get('nationalPhoneNumber', 'Não informado')
                         maps_link = empresa.get('googleMapsUri', '')
+                        avaliacoes = empresa.get('userRatingCount', 0)
+                        nota = empresa.get('rating', 'N/A')
                         
-                        # Status Aberto/Fechado
                         open_now = empresa.get('currentOpeningHours', {}).get('openNow')
-                        status = "🟢 Aberto agora" if open_now is True else "🔴 Fechado agora" if open_now is False else "⚪ Status N/D"
+                        status = "🟢 Aberto" if open_now is True else "🔴 Fechado" if open_now is False else "⚪ N/D"
                         
-                        # --- NOVA LÓGICA DE VALIDAÇÃO DE WHATSAPP ---
-                        # Remove tudo que não for número
+                        # Validação WhatsApp (DDD + 9 + 8 dígitos)
                         num_limpo = re.sub(r'\D', '', telefone) if telefone != 'Não informado' else ""
-                        
-                        # Valida se é um celular brasileiro (DDD + 9 + 8 dígitos = 11 dígitos)
-                        # Isso evita links de WhatsApp para telefones fixos (que começam com 2, 3, 4)
-                        if len(num_limpo) == 11 and num_limpo[2] == '9':
-                            whatsapp_link = f"https://wa.me/55{num_limpo}"
-                            whatsapp_status = "✅ Válido"
-                        else:
-                            whatsapp_link = "#"
-                            whatsapp_status = "❌ Inválido/Fixo"
+                        is_valido = len(num_limpo) == 11 and num_limpo[2] == '9'
+                        whatsapp_link = f"https://wa.me/55{num_limpo}" if is_valido else "#"
 
                         insta_search = f"https://www.google.com/search?q=instagram+{nome.replace(' ', '+')}+{cidade.replace(' ', '+')}"
 
-                        # --- CARD DA EMPRESA ---
-                        with st.expander(f"🏢 {nome} ({status})", expanded=False):
+                        with st.expander(f"🏢 {nome} ({status}) - ⭐ {nota} ({avaliacoes} avaliações)", expanded=False):
                             
                             col1, col2 = st.columns([2, 1])
                             
                             with col1:
                                 st.write(f"📍 **Endereço:** {endereco}")
-                                st.write(f"📞 **Telefone:** {telefone}")
-                                st.write(f"🏷️ **Nicho:** {termo.title()}")
-                                st.write(f"📱 **Status do WhatsApp:** {whatsapp_status}")
+                                st.write(f"📞 **Telefone:** {telefone} - {'✅ WhatsApp Válido' if is_valido else '❌ Inválido/Fixo'}")
+                                st.write(f"📊 **Google:** Nota {nota} com {avaliacoes} avaliações.")
                             
                             with col2:
-                                st.write("**Ações Rápidas:**")
-                                # Se o WhatsApp for inválido, o link não aparece
-                                if whatsapp_link != "#":
+                                if is_valido:
                                     st.markdown(f"[📱 Chamar no Zap]({whatsapp_link})")
-                                else:
-                                    st.markdown("_WhatsApp indisponível_")
                                 st.markdown(f"[📍 Maps]({maps_link}) | [📸 Insta]({insta_search})")
 
                             st.markdown("---")
+                            tab1, tab2 = st.tabs(["💬 Abordagem", "💻 Prompt do Site (Premium)"])
                             
-                            tab1, tab2 = st.tabs(["💬 Mensagem de Abordagem", "💻 Criar Site com IA"])
-                            
-                            # ABA 1: ABORDAGEM PROFISSIONAL
                             with tab1:
-                                texto_abordagem = f"Oi, {nome}! Tudo bem? Sou da {nome_agencia}. \n\nProcurei por {termo} em {cidade} no Google e encontrei vocês, mas notei que a empresa ainda não tem um site próprio. \n\nTenho uma ideia rápida de como um site simples pode trazer mais clientes direto para o WhatsApp de vocês. Posso te mostrar como ficaria sem compromisso?"
-                                
-                                st.info("💡 Abordagem curta e consultiva. Ideal para WhatsApp ou Instagram Direct.")
-                                st.text_area("Copie a mensagem abaixo:", texto_abordagem, height=160, key=f"msg_{nome}")
+                                texto_abordagem = f"Oi, {nome}! Tudo bem? Sou da {nome_agencia}. \n\nVi o perfil de vocês no Google (parabéns pelas avaliações!) e notei que ainda não têm um site próprio. \n\nCriei um modelo de site profissional especificamente para {termo}s. Posso te mandar o link para você ver como ficaria a sua marca na internet, sem compromisso?"
+                                st.info("💡 Dica: Empresas com menos de 300 avaliações são mais fáceis de fechar contrato.")
+                                st.text_area("Copie a mensagem:", texto_abordagem, height=150, key=f"msg_{nome}")
                             
-                            # ABA 2: PROMPT PARA CRIAR SITE (NÍVEL PROFISSIONAL)
                             with tab2:
-                                # Prompt reescrito seguindo as melhores práticas do Lovable
-                                prompt_site = f"""
-**Objetivo:** Crie um site one-page de alta conversão para a empresa **{nome}**, do ramo de **{termo}**, localizada em **{cidade}**.
+                                prompt_site = f"""Você é um Web Designer Sênior de uma agência premium. Crie um site one-page de altíssimo nível para a empresa {nome} (Ramo: {termo}, Cidade: {cidade}).
 
-**Público-alvo:** Clientes locais que buscam serviços de {termo} e valorizam qualidade, confiança e praticidade.
+DIRETRIZES DE DESIGN (Siga rigidamente):
+- Estilo: Premium, moderno, imersivo e responsivo (Mobile-First).
+- Tipografia: Use fontes grossas (Bold/Condensed) para os títulos principais.
+- Cores: Tema escuro (Dark Mode) com cores de destaque vibrantes que combinem com o ramo de {termo}.
+- Imagens: Use imagens de fundo em tela cheia (Unsplash) com um filtro escuro (overlay) para que o texto branco se destaque.
 
-**Estilo Visual (Premium e Sleek):**
-- **Paleta de Cores:** [Escolha uma paleta que combine com o ramo, ex: tons escuros e dourados para barbearia, ou cores quentes e vibrantes para pizzaria].
-- **Tipografia:** Use uma fonte moderna e elegante (ex: "Inter" ou "Outfit").
-- **Layout:** Estrutura de página única com seções bem definidas, espaçamento generoso (whitespace) e imagens de alta qualidade (use placeholders de imagens que representem o serviço).
-- **Tom de Voz:** Profissional, acolhedor e persuasivo, como se fosse o próprio dono falando.
+ESTRUTURA DA PÁGINA:
+1. HERO SECTION (Topo):
+   - Imagem de fundo impactante relacionada a {termo}.
+   - Título enorme e chamativo (ex: "SEU ESTILO. NOSSO TRABALHO." ou "O MELHOR {termo.upper()} DA REGIÃO").
+   - Subtítulo curto explicando o diferencial.
+   - DOIS BOTÕES: Um verde grande "Chamar no WhatsApp" (link: https://wa.me/55{num_limpo}) e um secundário "Nossos Serviços".
 
-**Estrutura da Página (One-Page):**
-1.  **Hero Section:** Título de impacto com a promessa principal (ex: "Seu estilo, nossa paixão"). Subtítulo com uma frase de apoio. Botão CTA verde e grande: **"Agendar Horário no WhatsApp"** (link: https://wa.me/55{num_limpo}).
-2.  **Sobre Nós:** Um parágrafo curto contando a história da empresa e o que a torna especial.
-3.  **Nossos Serviços:** Uma grade (grid) com 3 a 4 serviços principais. Cada serviço deve ter: Ícone, Nome do Serviço, Breve descrição, **Preço** e **Duração** (ex: "Corte Masculino - R$ 50 - 40 min").
-4.  **Depoimentos:** Uma seção com 3 depoimentos de clientes reais (invente nomes e textos realistas que falem sobre a qualidade do atendimento).
-5.  **Localização e Contato:** Endereço completo ({endereco}), link para o Google Maps e um botão de WhatsApp.
-6.  **Rodapé:** Informações de copyright e links para redes sociais (use placeholders).
+2. BARRA DE DESTAQUES:
+   - Uma faixa fina com 3 ou 4 itens (ex: "Atendimento Premium", "Profissionais Qualificados", "Nota {nota} no Google").
 
-**Instruções Técnicas:**
-- Use React com Tailwind CSS.
-- O site deve ser **Mobile-First** (perfeito para celular).
-- Garanta que todos os botões de CTA levem diretamente para o link do WhatsApp fornecido.
-"""
-                                
-                                st.info("💡 Prompt profissional. Copie o texto abaixo e cole no Lovable (lovable.dev) ou v0.dev.")
+3. NOSSOS SERVIÇOS:
+   - Grid de 3 ou 4 cards com fundo escuro e bordas sutis.
+   - Cada card deve ter: Um ícone, Nome do Serviço, Descrição curta e Preço estimado.
+
+4. SOBRE NÓS:
+   - Layout dividido (texto de um lado, imagem do outro).
+   - Texto focado em confiança e qualidade. Inclua o endereço: {endereco}.
+
+5. DEPOIMENTOS (Prova Social):
+   - 3 cards de depoimentos de clientes (invente nomes e textos realistas, destacando o atendimento e a qualidade).
+
+6. FOOTER (Rodapé):
+   - Informações de contato, endereço, e um mapa do Google embutido.
+   - Link para o Instagram (use um placeholder).
+
+TECNOLOGIA: Use React com Tailwind CSS. Garanta que o botão de WhatsApp esteja flutuante no canto inferior direito em dispositivos móveis."""
+
+                                st.success("✅ Prompt atualizado com as melhores práticas de design.")
                                 st.code(prompt_site, language="markdown")
 
                 else:
-                    st.warning("Nenhuma empresa sem site encontrada nessa busca. Tente outro nicho ou cidade.")
+                    st.warning("Nenhuma empresa encontrada com esses filtros. Tente desmarcar o filtro de tamanho ou mudar a cidade.")
 
             except Exception as e:
-                st.error(f"Erro na busca: Verifique sua API Key. Detalhes: {e}")
+                st.error(f"Erro na busca: {e}")
 else:
-    st.info("👈 Insira sua Google Maps API Key na barra lateral esquerda para começar.")
+    st.info("👈 Insira sua Google Maps API Key na barra lateral esquerda.")
