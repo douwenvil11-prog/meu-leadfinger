@@ -29,7 +29,7 @@ if api_key:
     nome_agencia = st.sidebar.text_input("Nome da sua agência/nome:", "Minha Agência Digital")
     
     st.sidebar.markdown("### 📍 Filtros de Busca")
-    termo = st.sidebar.text_input("Qual o nicho? (Ex: pizzaria, lava jato)", "lava jato")
+    termo = st.sidebar.text_input("Qual o nicho? (Ex: pizzaria, lava jato, barbearia)", "barbearia")
     
     estado = st.sidebar.selectbox("Selecione o Estado:", list(CIDADES_BR.keys()))
     
@@ -70,9 +70,19 @@ if api_key:
                         open_now = empresa.get('currentOpeningHours', {}).get('openNow')
                         status = "🟢 Aberto agora" if open_now is True else "🔴 Fechado agora" if open_now is False else "⚪ Status N/D"
                         
-                        # Preparação dos Links
+                        # --- NOVA LÓGICA DE VALIDAÇÃO DE WHATSAPP ---
+                        # Remove tudo que não for número
                         num_limpo = re.sub(r'\D', '', telefone) if telefone != 'Não informado' else ""
-                        whatsapp_link = f"https://wa.me/{num_limpo}" if num_limpo else "#"
+                        
+                        # Valida se é um celular brasileiro (DDD + 9 + 8 dígitos = 11 dígitos)
+                        # Isso evita links de WhatsApp para telefones fixos (que começam com 2, 3, 4)
+                        if len(num_limpo) == 11 and num_limpo[2] == '9':
+                            whatsapp_link = f"https://wa.me/55{num_limpo}"
+                            whatsapp_status = "✅ Válido"
+                        else:
+                            whatsapp_link = "#"
+                            whatsapp_status = "❌ Inválido/Fixo"
+
                         insta_search = f"https://www.google.com/search?q=instagram+{nome.replace(' ', '+')}+{cidade.replace(' ', '+')}"
 
                         # --- CARD DA EMPRESA ---
@@ -84,10 +94,16 @@ if api_key:
                                 st.write(f"📍 **Endereço:** {endereco}")
                                 st.write(f"📞 **Telefone:** {telefone}")
                                 st.write(f"🏷️ **Nicho:** {termo.title()}")
+                                st.write(f"📱 **Status do WhatsApp:** {whatsapp_status}")
                             
                             with col2:
                                 st.write("**Ações Rápidas:**")
-                                st.markdown(f"[📱 Chamar no Zap]({whatsapp_link}) | [📍 Maps]({maps_link}) | [📸 Insta]({insta_search})")
+                                # Se o WhatsApp for inválido, o link não aparece
+                                if whatsapp_link != "#":
+                                    st.markdown(f"[📱 Chamar no Zap]({whatsapp_link})")
+                                else:
+                                    st.markdown("_WhatsApp indisponível_")
+                                st.markdown(f"[📍 Maps]({maps_link}) | [📸 Insta]({insta_search})")
 
                             st.markdown("---")
                             
@@ -100,26 +116,35 @@ if api_key:
                                 st.info("💡 Abordagem curta e consultiva. Ideal para WhatsApp ou Instagram Direct.")
                                 st.text_area("Copie a mensagem abaixo:", texto_abordagem, height=160, key=f"msg_{nome}")
                             
-                            # ABA 2: PROMPT PARA CRIAR SITE
+                            # ABA 2: PROMPT PARA CRIAR SITE (NÍVEL PROFISSIONAL)
                             with tab2:
-                                prompt_site = f"""Crie um site de uma página (one-page) para a empresa {nome}.
-O objetivo é um só: fazer com que quem pesquisa {termo} na região de {cidade} entenda em segundos o que a empresa oferece e chame no WhatsApp ou vá até lá.
+                                # Prompt reescrito seguindo as melhores práticas do Lovable
+                                prompt_site = f"""
+**Objetivo:** Crie um site one-page de alta conversão para a empresa **{nome}**, do ramo de **{termo}**, localizada em **{cidade}**.
 
-Aqui estão os dados da empresa:
-- Nome: {nome}
-- Ramo: {termo}
-- Endereço: {endereco}
-- Telefone/WhatsApp: {telefone}
+**Público-alvo:** Clientes locais que buscam serviços de {termo} e valorizam qualidade, confiança e praticidade.
 
-O site deve ter:
-1. Visual moderno, confiável e responsivo (Mobile First).
-2. Uma seção Hero com o nome da empresa e um botão verde bem grande "Chamar no WhatsApp" (link: https://wa.me/{num_limpo}).
-3. Seção de Serviços prestados (invente serviços comuns para {termo}).
-4. Seção de depoimentos (invente 3 depoimentos positivos).
-5. Rodapé com o endereço e link do mapa.
-Use React com Tailwind CSS e cores que combinem com o ramo de {termo}."""
+**Estilo Visual (Premium e Sleek):**
+- **Paleta de Cores:** [Escolha uma paleta que combine com o ramo, ex: tons escuros e dourados para barbearia, ou cores quentes e vibrantes para pizzaria].
+- **Tipografia:** Use uma fonte moderna e elegante (ex: "Inter" ou "Outfit").
+- **Layout:** Estrutura de página única com seções bem definidas, espaçamento generoso (whitespace) e imagens de alta qualidade (use placeholders de imagens que representem o serviço).
+- **Tom de Voz:** Profissional, acolhedor e persuasivo, como se fosse o próprio dono falando.
+
+**Estrutura da Página (One-Page):**
+1.  **Hero Section:** Título de impacto com a promessa principal (ex: "Seu estilo, nossa paixão"). Subtítulo com uma frase de apoio. Botão CTA verde e grande: **"Agendar Horário no WhatsApp"** (link: https://wa.me/55{num_limpo}).
+2.  **Sobre Nós:** Um parágrafo curto contando a história da empresa e o que a torna especial.
+3.  **Nossos Serviços:** Uma grade (grid) com 3 a 4 serviços principais. Cada serviço deve ter: Ícone, Nome do Serviço, Breve descrição, **Preço** e **Duração** (ex: "Corte Masculino - R$ 50 - 40 min").
+4.  **Depoimentos:** Uma seção com 3 depoimentos de clientes reais (invente nomes e textos realistas que falem sobre a qualidade do atendimento).
+5.  **Localização e Contato:** Endereço completo ({endereco}), link para o Google Maps e um botão de WhatsApp.
+6.  **Rodapé:** Informações de copyright e links para redes sociais (use placeholders).
+
+**Instruções Técnicas:**
+- Use React com Tailwind CSS.
+- O site deve ser **Mobile-First** (perfeito para celular).
+- Garanta que todos os botões de CTA levem diretamente para o link do WhatsApp fornecido.
+"""
                                 
-                                st.info("💡 Copie o texto abaixo e cole no Lovable (lovable.dev) ou v0.dev para gerar o site.")
+                                st.info("💡 Prompt profissional. Copie o texto abaixo e cole no Lovable (lovable.dev) ou v0.dev.")
                                 st.code(prompt_site, language="markdown")
 
                 else:
