@@ -4,6 +4,13 @@ import re
 
 st.set_page_config(page_title="LeadFinder PRO", layout="wide", page_icon="🚀")
 
+# --- LISTA DE NICHOS (Para não digitar) ---
+NICHOS = [
+    "Hamburgueria", "Pizzaria", "Barbearia", "Sorveteria/Açaí", 
+    "Restaurante", "Mecânica", "Lava Jato", "Pet Shop", 
+    "Clínica/Consultório", "Academia", "Padaria", "Outro"
+]
+
 # --- LISTA DE ESTADOS E CIDADES ---
 CIDADES_BR = {
     "São Paulo": ["São Paulo", "Campinas", "Santos", "Ribeirão Preto"],
@@ -19,7 +26,7 @@ CIDADES_BR = {
 }
 
 st.title("🚀 LeadFinder PRO - Prospecção Premium")
-st.write("Encontre empresas sem site, gere abordagens e crie prompts de design de alto nível.")
+st.write("Encontre empresas sem site e gere prompts com design de alto padrão.")
 
 # --- LÓGICA DA CHAVE DE API (SALVA NOS SECRETS) ---
 if "GOOGLE_API_KEY" in st.secrets:
@@ -32,7 +39,12 @@ if api_key:
     nome_agencia = st.sidebar.text_input("Nome da sua agência:", "Nexo Sites")
     
     st.sidebar.markdown("### 📍 Filtros de Busca")
-    termo = st.sidebar.text_input("Nicho (Ex: barbearia, academia)", "barbearia")
+    
+    nicho_selecionado = st.sidebar.selectbox("Qual o nicho?", NICHOS)
+    if nicho_selecionado == "Outro":
+        termo = st.sidebar.text_input("Digite o nicho:", "seu nicho aqui")
+    else:
+        termo = nicho_selecionado
     
     estado = st.sidebar.selectbox("Estado:", list(CIDADES_BR.keys()))
     if estado == "Outro":
@@ -40,7 +52,6 @@ if api_key:
     else:
         cidade = st.sidebar.selectbox("Cidade:", CIDADES_BR[estado])
 
-    # Filtro para evitar empresas gigantes
     filtro_tamanho = st.sidebar.checkbox("Filtrar empresas médias/pequenas (< 300 avaliações)", value=True)
 
     if st.sidebar.button("Pesquisar Empresas", type="primary", use_container_width=True):
@@ -60,10 +71,8 @@ if api_key:
                 
                 leads = []
                 for p in places:
-                    # Filtra os que NÃO têm site
                     if 'websiteUri' not in p:
                         qtd_avaliacoes = p.get('userRatingCount', 0)
-                        # Se o filtro estiver ativo, ignora empresas com mais de 300 avaliações
                         if filtro_tamanho and qtd_avaliacoes > 300:
                             continue
                         leads.append(p)
@@ -82,7 +91,6 @@ if api_key:
                         open_now = empresa.get('currentOpeningHours', {}).get('openNow')
                         status = "🟢 Aberto" if open_now is True else "🔴 Fechado" if open_now is False else "⚪ N/D"
                         
-                        # Validação WhatsApp (DDD + 9 + 8 dígitos)
                         num_limpo = re.sub(r'\D', '', telefone) if telefone != 'Não informado' else ""
                         is_valido = len(num_limpo) == 11 and num_limpo[2] == '9'
                         whatsapp_link = f"https://wa.me/55{num_limpo}" if is_valido else "#"
@@ -107,51 +115,53 @@ if api_key:
                             tab1, tab2 = st.tabs(["💬 Abordagem", "💻 Prompt do Site (Premium)"])
                             
                             with tab1:
-                                texto_abordagem = f"Oi, {nome}! Tudo bem? Sou da {nome_agencia}. \n\nVi o perfil de vocês no Google (parabéns pelas avaliações!) e notei que ainda não têm um site próprio. \n\nCriei um modelo de site profissional especificamente para {termo}s. Posso te mandar o link para você ver como ficaria a sua marca na internet, sem compromisso?"
-                                st.info("💡 Dica: Empresas com menos de 300 avaliações são mais fáceis de fechar contrato.")
+                                texto_abordagem = f"Oi, {nome}! Tudo bem? Sou da {nome_agencia}. \n\nVi o perfil de vocês no Google e notei que ainda não têm um site próprio. \n\nCriei um modelo de site profissional para {termo}s. Posso te mandar o link para você ver como ficaria a sua marca na internet, sem compromisso?"
+                                st.info("💡 Foco em empresas com menos de 300 avaliações.")
                                 st.text_area("Copie a mensagem:", texto_abordagem, height=150, key=f"msg_{nome}")
                             
+                            # --- PROMPT ATUALIZADO COM DESIGN DINÂMICO ---
                             with tab2:
-                                prompt_site = f"""Você é um Web Designer Sênior de uma agência premium. Crie um site one-page de altíssimo nível para a empresa {nome} (Ramo: {termo}, Cidade: {cidade}).
+                                prompt_site = f"""Você é um Web Designer Sênior especialista em landing pages de alta conversão. Crie um site one-page premium e extremamente bonito para a empresa {nome} (Ramo: {termo}, Cidade: {cidade}).
 
-DIRETRIZES DE DESIGN (Siga rigidamente):
-- Estilo: Premium, moderno, imersivo e responsivo (Mobile-First).
-- Tipografia: Use fontes grossas (Bold/Condensed) para os títulos principais.
-- Cores: Tema escuro (Dark Mode) com cores de destaque vibrantes que combinem com o ramo de {termo}.
-- Imagens: Use imagens de fundo em tela cheia (Unsplash) com um filtro escuro (overlay) para que o texto branco se destaque.
+DIRETRIZES DE DESIGN (SIGA RIGIDAMENTE):
+- **Estilo e Cores:** NÃO force um tema escuro. Analise o ramo "{termo}" e crie uma identidade visual que transmita a essência da empresa. (Ex: Padaria = cores quentes/aconchegantes; Clínica = tons claros/azulados e limpos; Hamburgueria = cores vibrantes ou estilo rústico/escuro; Pet Shop = cores alegres).
+- **Tipografia:** Títulos em fontes Grossas (Bold/Black) para passar imponência. Corpo do texto em fonte legível (ex: Inter, Poppins).
+- **Imagens:** Use imagens de fundo em tela cheia de alta qualidade (Unsplash) relacionadas ao nicho. Aplique um gradiente leve ou overlay para garantir que o texto seja perfeitamente legível.
 
-ESTRUTURA DA PÁGINA:
-1. HERO SECTION (Topo):
-   - Imagem de fundo impactante relacionada a {termo}.
-   - Título enorme e chamativo (ex: "SEU ESTILO. NOSSO TRABALHO." ou "O MELHOR {termo.upper()} DA REGIÃO").
-   - Subtítulo curto explicando o diferencial.
-   - DOIS BOTÕES: Um verde grande "Chamar no WhatsApp" (link: https://wa.me/55{num_limpo}) e um secundário "Nossos Serviços".
+ESTRUTURA OBRIGATÓRIA DA PÁGINA (Inspirada em sites premium):
+1. NAVBAR (Topo):
+   - Logo da empresa à esquerda.
+   - Menu à direita com links: "Início", "Cardápio" (ou Serviços), "Sobre", "Contato".
+   - Botão pequeno e destacado de "Pedir no WhatsApp" no canto direito.
 
-2. BARRA DE DESTAQUES:
-   - Uma faixa fina com 3 ou 4 itens (ex: "Atendimento Premium", "Profissionais Qualificados", "Nota {nota} no Google").
+2. HERO SECTION (Topo da página):
+   - Imagem de fundo imersiva de alta qualidade.
+   - Badge/Etiqueta pequena (ex: "Qualidade Premium").
+   - Título gigante com duas cores que combinem com a paleta escolhida (ex: "SABOR QUE <span style='color:[cor_destaque]'>MARCA.</span>").
+   - Subtítulo curto e persuasivo.
+   - DOIS BOTÕES lado a lado: Um primário colorido "CONHECER" e um secundário verde "Pedir no WhatsApp" (link: https://wa.me/55{num_limpo}).
 
-3. NOSSOS SERVIÇOS:
-   - Grid de 3 ou 4 cards com fundo escuro e bordas sutis.
-   - Cada card deve ter: Um ícone, Nome do Serviço, Descrição curta e Preço estimado.
+3. DESTAQUES / SERVIÇOS:
+   - Grid com 3 ou 4 cards (fundo levemente sombreado ou com bordas elegantes).
+   - Cada card: Ícone, Nome do Serviço/Produto, Descrição curta e Preço.
+   - *Dica para {termo}: Se for comida, invente nomes de pratos suculentos. Se for serviço, invente pacotes.*
 
 4. SOBRE NÓS:
-   - Layout dividido (texto de um lado, imagem do outro).
-   - Texto focado em confiança e qualidade. Inclua o endereço: {endereco}.
+   - Layout moderno. Texto contando a história da empresa. Inclua o endereço: {endereco}.
 
-5. DEPOIMENTOS (Prova Social):
-   - 3 cards de depoimentos de clientes (invente nomes e textos realistas, destacando o atendimento e a qualidade).
+5. PROVA SOCIAL (Depoimentos):
+   - 3 depoimentos de clientes reais com 5 estrelas.
 
 6. FOOTER (Rodapé):
-   - Informações de contato, endereço, e um mapa do Google embutido.
-   - Link para o Instagram (use um placeholder).
+   - Logo, endereço, copyright e link para o Instagram.
 
-TECNOLOGIA: Use React com Tailwind CSS. Garanta que o botão de WhatsApp esteja flutuante no canto inferior direito em dispositivos móveis."""
-
-                                st.success("✅ Prompt atualizado com as melhores práticas de design.")
+TECNOLOGIA: React com Tailwind CSS. Site Mobile-First. O botão de WhatsApp deve flutuar na tela em dispositivos móveis."""
+                                
+                                st.success("✅ Prompt atualizado! Ele agora escolhe o melhor design para cada nicho.")
                                 st.code(prompt_site, language="markdown")
 
                 else:
-                    st.warning("Nenhuma empresa encontrada com esses filtros. Tente desmarcar o filtro de tamanho ou mudar a cidade.")
+                    st.warning("Nenhuma empresa encontrada com esses filtros.")
 
             except Exception as e:
                 st.error(f"Erro na busca: {e}")
