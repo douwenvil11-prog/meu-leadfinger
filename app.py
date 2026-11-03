@@ -4,31 +4,26 @@ import re
 
 st.set_page_config(page_title="LeadFinder PRO", layout="wide", page_icon="🚀")
 
-# --- LISTA DE NICHOS (Para não digitar) ---
+# --- LISTA DE NICHOS ---
 NICHOS = [
     "Hamburgueria", "Pizzaria", "Barbearia", "Sorveteria/Açaí", 
     "Restaurante", "Mecânica", "Lava Jato", "Pet Shop", 
-    "Clínica/Consultório", "Academia", "Padaria", "Outro"
+    "Clínica/Consultório", "Academia", "Padaria", "Buffet", "Outro"
 ]
 
 # --- LISTA DE ESTADOS E CIDADES ---
 CIDADES_BR = {
-    "São Paulo": ["São Paulo", "Campinas", "Santos", "Ribeirão Preto"],
-    "Rio de Janeiro": ["Rio de Janeiro", "Niterói", "Nova Iguaçu"],
-    "Minas Gerais": ["Belo Horizonte", "Uberlândia", "Contagem"],
+    "São Paulo": ["São Paulo", "Campinas", "Santos"],
+    "Minas Gerais": ["Belo Horizonte", "Uberlândia", "Cataguases"],
     "Piauí": ["Teresina", "Parnaíba", "Picos", "Timon"],
     "Maranhão": ["São Luís", "Imperatriz", "Timon", "Caxias"],
-    "Bahia": ["Salvador", "Feira de Santana", "Vitória da Conquista"],
-    "Paraná": ["Curitiba", "Londrina", "Maringá"],
-    "Ceará": ["Fortaleza", "Caucaia", "Juazeiro do Norte"],
-    "Goiás": ["Goiânia", "Aparecida de Goiânia", "Anápolis"],
     "Outro": ["Digitar manualmente"]
 }
 
 st.title("🚀 LeadFinder PRO - Prospecção Premium")
-st.write("Encontre empresas sem site e gere prompts com design de alto padrão.")
+st.write("Encontre empresas sem site, gere abordagens e crie sites com IA.")
 
-# --- LÓGICA DA CHAVE DE API (SALVA NOS SECRETS) ---
+# --- LÓGICA DA CHAVE DE API ---
 if "GOOGLE_API_KEY" in st.secrets:
     api_key = st.secrets["GOOGLE_API_KEY"]
 else:
@@ -39,20 +34,13 @@ if api_key:
     nome_agencia = st.sidebar.text_input("Nome da sua agência:", "Nexo Sites")
     
     st.sidebar.markdown("### 📍 Filtros de Busca")
-    
     nicho_selecionado = st.sidebar.selectbox("Qual o nicho?", NICHOS)
-    if nicho_selecionado == "Outro":
-        termo = st.sidebar.text_input("Digite o nicho:", "seu nicho aqui")
-    else:
-        termo = nicho_selecionado
+    termo = st.sidebar.text_input("Digite o nicho:", "seu nicho aqui") if nicho_selecionado == "Outro" else nicho_selecionado
     
     estado = st.sidebar.selectbox("Estado:", list(CIDADES_BR.keys()))
-    if estado == "Outro":
-        cidade = st.sidebar.text_input("Digite a cidade:", "Sua Cidade, UF")
-    else:
-        cidade = st.sidebar.selectbox("Cidade:", CIDADES_BR[estado])
+    cidade = st.sidebar.selectbox("Cidade:", CIDADES_BR[estado]) if estado != "Outro" else st.sidebar.text_input("Digite a cidade:", "Sua Cidade, UF")
 
-    filtro_tamanho = st.sidebar.checkbox("Filtrar empresas médias/pequenas (< 300 avaliações)", value=True)
+    filtro_tamanho = st.sidebar.checkbox("Filtrar empresas pequenas (< 300 avaliações)", value=True)
 
     if st.sidebar.button("Pesquisar Empresas", type="primary", use_container_width=True):
         with st.spinner('Buscando empresas...'):
@@ -103,8 +91,7 @@ if api_key:
                             
                             with col1:
                                 st.write(f"📍 **Endereço:** {endereco}")
-                                st.write(f"📞 **Telefone:** {telefone} - {'✅ WhatsApp Válido' if is_valido else '❌ Inválido/Fixo'}")
-                                st.write(f"📊 **Google:** Nota {nota} com {avaliacoes} avaliações.")
+                                st.write(f"📞 **Telefone:** {telefone} - {'✅ WhatsApp Válido' if is_valido else '❌ Inválido'}")
                             
                             with col2:
                                 if is_valido:
@@ -112,52 +99,80 @@ if api_key:
                                 st.markdown(f"[📍 Maps]({maps_link}) | [📸 Insta]({insta_search})")
 
                             st.markdown("---")
-                            tab1, tab2 = st.tabs(["💬 Abordagem", "💻 Prompt do Site (Premium)"])
+                            tab1, tab2 = st.tabs(["💬 Abordagem", "💻 Criar Site com IA"])
                             
                             with tab1:
                                 texto_abordagem = f"Oi, {nome}! Tudo bem? Sou da {nome_agencia}. \n\nVi o perfil de vocês no Google e notei que ainda não têm um site próprio. \n\nCriei um modelo de site profissional para {termo}s. Posso te mandar o link para você ver como ficaria a sua marca na internet, sem compromisso?"
-                                st.info("💡 Foco em empresas com menos de 300 avaliações.")
                                 st.text_area("Copie a mensagem:", texto_abordagem, height=150, key=f"msg_{nome}")
                             
-                            # --- PROMPT ATUALIZADO COM DESIGN DINÂMICO ---
+                            # --- NOVA ÁREA DE CRIAÇÃO DE SITE COM UPLOAD DE IMAGEM ---
                             with tab2:
-                                prompt_site = f"""Você é um Web Designer Sênior especialista em landing pages de alta conversão. Crie um site one-page premium e extremamente bonito para a empresa {nome} (Ramo: {termo}, Cidade: {cidade}).
+                                st.write("🎨 **Personalize o Site Demonstrativo**")
+                                
+                                col_c1, col_c2 = st.columns(2)
+                                with col_c1:
+                                    cor_primaria = st.color_picker("Cor Primária (Fundo)", "#FF5722", key=f"c1_{nome}")
+                                with col_c2:
+                                    cor_secundaria = st.color_picker("Cor do Texto", "#FFFFFF", key=f"c2_{nome}")
+                                
+                                # NOVO: Upload de Imagem de Referência
+                                imagem_ref = st.file_uploader("📸 Suba uma foto de referência ou do produto do cliente (opcional):", type=["jpg", "jpeg", "png"], key=f"img_{nome}")
+                                
+                                opcoes_servico = st.multiselect(
+                                    "O que a empresa oferece?",
+                                    ["Delivery", "Combo", "Artesanal", "Presencial", "Agendamento", "Retirada na loja"],
+                                    default=["Delivery", "Artesanal"],
+                                    key=f"serv_{nome}"
+                                )
 
-DIRETRIZES DE DESIGN (SIGA RIGIDAMENTE):
-- **Estilo e Cores:** NÃO force um tema escuro. Analise o ramo "{termo}" e crie uma identidade visual que transmita a essência da empresa. (Ex: Padaria = cores quentes/aconchegantes; Clínica = tons claros/azulados e limpos; Hamburgueria = cores vibrantes ou estilo rústico/escuro; Pet Shop = cores alegres).
-- **Tipografia:** Títulos em fontes Grossas (Bold/Black) para passar imponência. Corpo do texto em fonte legível (ex: Inter, Poppins).
-- **Imagens:** Use imagens de fundo em tela cheia de alta qualidade (Unsplash) relacionadas ao nicho. Aplique um gradiente leve ou overlay para garantir que o texto seja perfeitamente legível.
+                                # --- LÓGICA DINÂMICA DO MENU ---
+                                if termo in ["Hamburgueria", "Pizzaria", "Restaurante", "Buffet", "Sorveteria/Açaí", "Padaria"]:
+                                    menu_itens = '"Início", "Cardápio", "Eventos", "Sobre", "Contato"'
+                                elif termo in ["Mecânica", "Lava Jato"]:
+                                    menu_itens = '"Início", "Serviços", "Sobre", "Contato"'
+                                elif termo == "Barbearia":
+                                    menu_itens = '"Início", "Serviços", "Galeria", "Avaliações", "Contato"'
+                                else:
+                                    menu_itens = '"Início", "Serviços", "Sobre", "Contato"'
 
-ESTRUTURA OBRIGATÓRIA DA PÁGINA (Inspirada em sites premium):
+                                # Prompt turbinado com as escolhas do usuário
+                                prompt_site = f"""Você é um Web Designer Sênior especialista em landing pages de alta conversão. Crie um site one-page premium para a empresa {nome} (Ramo: {termo}, Cidade: {cidade}).
+
+DIRETRIZES DE DESIGN OBRIGATÓRIAS (Siga à risca):
+- **Layout Hero:** Use um layout em duas colunas. À ESQUERDA: textos gigantes empilhados e um botão em formato de pílula. À DIREITA: uma imagem de alta qualidade do produto/serviço principal, com fundo recortado (estilo imagem flutuante ou círculo).
+- **Cores:** Use a cor primária {cor_primaria} como fundo principal da seção Hero. O texto deve ser {cor_secundaria}.
+- **Selo:** Crie um selo circular giratório (estilo carimbo) no canto superior direito da imagem com a frase "SABOR EM CADA DETALHE" (ou algo equivalente ao ramo).
+- **Tipografia:** Títulos em fontes Grossas (Black, ex: Poppins, Montserrat). Misture cores no mesmo título (ex: palavra 1 em branco, palavra 2 em amarelo, palavra 3 em branco).
+
+ESTRUTURA OBRIGATÓRIA DA PÁGINA:
 1. NAVBAR (Topo):
    - Logo da empresa à esquerda.
-   - Menu à direita com links: "Início", "Cardápio" (ou Serviços), "Sobre", "Contato".
-   - Botão pequeno e destacado de "Pedir no WhatsApp" no canto direito.
+   - Menu à direita com links: {menu_itens}.
+   - Botão em pílula "Solicitar Orçamento" no canto direito.
 
-2. HERO SECTION (Topo da página):
-   - Imagem de fundo imersiva de alta qualidade.
-   - Badge/Etiqueta pequena (ex: "Qualidade Premium").
-   - Título gigante com duas cores que combinem com a paleta escolhida (ex: "SABOR QUE <span style='color:[cor_destaque]'>MARCA.</span>").
-   - Subtítulo curto e persuasivo.
-   - DOIS BOTÕES lado a lado: Um primário colorido "CONHECER" e um secundário verde "Pedir no WhatsApp" (link: https://wa.me/55{num_limpo}).
+2. HERO SECTION:
+   - Título gigante (ex: "COMIDA QUE JUNTA PESSOAS").
+   - Subtítulo persuasivo e curto.
+   - DOIS BOTÕES: Um primário "Solicitar Orçamento" e um secundário "Ver no WhatsApp" (link: https://wa.me/55{num_limpo}).
+   - Imagem do produto em destaque à direita.
 
-3. DESTAQUES / SERVIÇOS:
-   - Grid com 3 ou 4 cards (fundo levemente sombreado ou com bordas elegantes).
-   - Cada card: Ícone, Nome do Serviço/Produto, Descrição curta e Preço.
-   - *Dica para {termo}: Se for comida, invente nomes de pratos suculentos. Se for serviço, invente pacotes.*
+3. NOSSOS DIFERENCIAIS / SERVIÇOS:
+   - Grid com 3 ou 4 cards.
+   - Destaque os serviços: {', '.join(opcoes_servico)}.
+   - Cada card: Ícone, Nome do Serviço, Descrição curta e Preço.
 
 4. SOBRE NÓS:
-   - Layout moderno. Texto contando a história da empresa. Inclua o endereço: {endereco}.
+   - Texto contando a história da empresa. Inclua o endereço: {endereco}.
 
-5. PROVA SOCIAL (Depoimentos):
-   - 3 depoimentos de clientes reais com 5 estrelas.
+5. PROVA SOCIAL:
+   - 3 depoimentos de clientes com 5 estrelas.
 
-6. FOOTER (Rodapé):
-   - Logo, endereço, copyright e link para o Instagram.
+6. FOOTER:
+   - Logo, endereço e link para o Instagram.
 
 TECNOLOGIA: React com Tailwind CSS. Site Mobile-First. O botão de WhatsApp deve flutuar na tela em dispositivos móveis."""
-                                
-                                st.success("✅ Prompt atualizado! Ele agora escolhe o melhor design para cada nicho.")
+
+                                st.success("✅ Prompt gerado com sucesso! Copie e cole no Lovable ou v0.dev.")
                                 st.code(prompt_site, language="markdown")
 
                 else:
