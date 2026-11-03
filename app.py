@@ -105,7 +105,6 @@ if api_key:
                                 texto_abordagem = f"Oi, {nome}! Tudo bem? Sou da {nome_agencia}. \n\nVi o perfil de vocês no Google e notei que ainda não têm um site próprio. \n\nCriei um modelo de site profissional para {termo}s. Posso te mandar o link para você ver como ficaria a sua marca na internet, sem compromisso?"
                                 st.text_area("Copie a mensagem:", texto_abordagem, height=150, key=f"msg_{nome}")
                             
-                            # --- NOVA ÁREA DE CRIAÇÃO DE SITE COM UPLOAD DE IMAGEM ---
                             with tab2:
                                 st.write("🎨 **Personalize o Site Demonstrativo**")
                                 
@@ -115,8 +114,7 @@ if api_key:
                                 with col_c2:
                                     cor_secundaria = st.color_picker("Cor do Texto", "#FFFFFF", key=f"c2_{nome}")
                                 
-                                # NOVO: Upload de Imagem de Referência
-                                imagem_ref = st.file_uploader("📸 Suba uma foto de referência ou do produto do cliente (opcional):", type=["jpg", "jpeg", "png"], key=f"img_{nome}")
+                                st.info("📸 **Dica:** Não precisa subir foto aqui. Na hora de gerar o site no Lovable, você poderá subir a imagem do produto direto lá e o layout já estará preparado para recebê-la.")
                                 
                                 opcoes_servico = st.multiselect(
                                     "O que a empresa oferece?",
@@ -125,7 +123,6 @@ if api_key:
                                     key=f"serv_{nome}"
                                 )
 
-                                # --- LÓGICA DINÂMICA DO MENU ---
                                 if termo in ["Hamburgueria", "Pizzaria", "Restaurante", "Buffet", "Sorveteria/Açaí", "Padaria"]:
                                     menu_itens = '"Início", "Cardápio", "Eventos", "Sobre", "Contato"'
                                 elif termo in ["Mecânica", "Lava Jato"]:
@@ -135,13 +132,12 @@ if api_key:
                                 else:
                                     menu_itens = '"Início", "Serviços", "Sobre", "Contato"'
 
-                                # Prompt turbinado com as escolhas do usuário
                                 prompt_site = f"""Você é um Web Designer Sênior especialista em landing pages de alta conversão. Crie um site one-page premium para a empresa {nome} (Ramo: {termo}, Cidade: {cidade}).
 
 DIRETRIZES DE DESIGN OBRIGATÓRIAS (Siga à risca):
-- **Layout Hero:** Use um layout em duas colunas. À ESQUERDA: textos gigantes empilhados e um botão em formato de pílula. À DIREITA: uma imagem de alta qualidade do produto/serviço principal, com fundo recortado (estilo imagem flutuante ou círculo).
+- **Layout Hero:** Use um layout em duas colunas. À ESQUERDA: textos gigantes empilhados e um botão em formato de pílula. À DIREITA: um ESPAÇO RESERVADO para uma imagem de alta qualidade do produto/serviço principal, com fundo recortado (estilo imagem flutuante ou círculo).
 - **Cores:** Use a cor primária {cor_primaria} como fundo principal da seção Hero. O texto deve ser {cor_secundaria}.
-- **Selo:** Crie um selo circular giratório (estilo carimbo) no canto superior direito da imagem com a frase "SABOR EM CADA DETALHE" (ou algo equivalente ao ramo).
+- **Selo:** Crie um selo circular giratório (estilo carimbo) no canto superior direito do espaço da imagem com a frase "SABOR EM CADA DETALHE" (ou algo equivalente ao ramo).
 - **Tipografia:** Títulos em fontes Grossas (Black, ex: Poppins, Montserrat). Misture cores no mesmo título (ex: palavra 1 em branco, palavra 2 em amarelo, palavra 3 em branco).
 
 ESTRUTURA OBRIGATÓRIA DA PÁGINA:
@@ -154,7 +150,7 @@ ESTRUTURA OBRIGATÓRIA DA PÁGINA:
    - Título gigante (ex: "COMIDA QUE JUNTA PESSOAS").
    - Subtítulo persuasivo e curto.
    - DOIS BOTÕES: Um primário "Solicitar Orçamento" e um secundário "Ver no WhatsApp" (link: https://wa.me/55{num_limpo}).
-   - Imagem do produto em destaque à direita.
+   - [ESPAÇO PARA IMAGEM DO PRODUTO À DIREITA]
 
 3. NOSSOS DIFERENCIAIS / SERVIÇOS:
    - Grid com 3 ou 4 cards.
@@ -172,7 +168,7 @@ ESTRUTURA OBRIGATÓRIA DA PÁGINA:
 
 TECNOLOGIA: React com Tailwind CSS. Site Mobile-First. O botão de WhatsApp deve flutuar na tela em dispositivos móveis."""
 
-                                st.success("✅ Prompt gerado com sucesso! Copie e cole no Lovable ou v0.dev.")
+                                st.success("✅ Prompt gerado com sucesso! Copie e cole no Lovable.")
                                 st.code(prompt_site, language="markdown")
 
                 else:
