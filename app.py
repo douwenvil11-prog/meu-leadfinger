@@ -81,7 +81,7 @@ def gerar_e_hospedar_site(prompt_usuario, api_key_groq):
                     "content": prompt_usuario
                 }
             ],
-            model="llama-3.3-70b-versatile", # Modelo gratuito e potente
+            model="openai/gpt-oss-120b", # Modelo gratuito e potente
         )
         
         codigo_html = chat_completion.choices[0].message.content
