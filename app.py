@@ -30,20 +30,28 @@ if 'etapa' not in st.session_state: st.session_state.etapa = 1
 if 'leads' not in st.session_state: st.session_state.leads = []
 if 'empresa_selecionada' not in st.session_state: st.session_state.empresa_selecionada = None
 
-# --- LISTAS DE NICHOS ---
+# --- LISTAS ---
 NICHOS = ["Hamburgueria", "Pizzaria", "Barbearia", "Sorveteria/Açaí", "Mecânica", "Lava Jato", "Buffet", "Outro"]
 
-# --- LISTA DE CIDADES (Estática para não dar erro de conexão) ---
+# --- BANCO DE IMAGENS PROFISSIONAIS (Unsplash) ---
+IMAGENS_NICHO = {
+    "Hamburgueria": "https://images.unsplash.com/photo-1568901346375-23c9450c58cd?q=80&w=2000&auto=format&fit=crop",
+    "Pizzaria": "https://images.unsplash.com/photo-1513104890138-7c749659a591?q=80&w=2000&auto=format&fit=crop",
+    "Barbearia": "https://images.unsplash.com/photo-1585747860715-2ba37e788b70?q=80&w=2000&auto=format&fit=crop",
+    "Sorveteria/Açaí": "https://images.unsplash.com/photo-1497034825429-c343d7c6a68f?q=80&w=2000&auto=format&fit=crop",
+    "Mecânica": "https://images.unsplash.com/photo-1520340356584-f9917d1eea6f?q=80&w=2000&auto=format&fit=crop",
+    "Lava Jato": "https://images.unsplash.com/photo-1601362840469-51e4d8d58785?q=80&w=2000&auto=format&fit=crop",
+    "Buffet": "https://images.unsplash.com/photo-1555244162-803834f70033?q=80&w=2000&auto=format&fit=crop",
+    "Outro": "https://images.unsplash.com/photo-1497366216548-37526070297c?q=80&w=2000&auto=format&fit=crop"
+}
+
+# --- LISTA DE CIDADES ---
 CIDADES_BR = {
     "Minas Gerais": ["Belo Horizonte", "Uberlândia", "Cataguases", "Juiz de Fora", "Contagem"],
     "São Paulo": ["São Paulo", "Campinas", "Santos", "Ribeirão Preto", "Guarulhos"],
-    "Rio de Janeiro": ["Rio de Janeiro", "Niterói", "Nova Iguaçu", "Campos dos Goytacazes"],
+    "Rio de Janeiro": ["Rio de Janeiro", "Niterói", "Nova Iguaçu"],
     "Piauí": ["Teresina", "Parnaíba", "Picos", "Timon"],
     "Maranhão": ["São Luís", "Imperatriz", "Timon", "Caxias"],
-    "Bahia": ["Salvador", "Feira de Santana", "Vitória da Conquista"],
-    "Paraná": ["Curitiba", "Londrina", "Maringá"],
-    "Ceará": ["Fortaleza", "Caucaia", "Juazeiro do Norte"],
-    "Goiás": ["Goiânia", "Aparecida de Goiânia", "Anápolis"],
     "Outro": ["Digitar manualmente"]
 }
 
@@ -54,37 +62,37 @@ else:
     api_key = st.sidebar.text_input("Insira sua Google Maps API Key:", type="password")
 
 # ==========================================
-# BARRA LATERAL (NAVEGAÇÃO)
+# BARRA LATERAL
 # ==========================================
 st.sidebar.title("⚡ LeadFinder OS")
 st.sidebar.markdown("---")
 
-if st.sidebar.button("🏠 Dashboard", use_container_width=True):
-    st.session_state.pagina = 'dashboard'
-if st.sidebar.button("🔍 Prospecção", use_container_width=True):
-    st.session_state.pagina = 'prospeccao'
-if st.sidebar.button("💼 Meus Projetos", use_container_width=True):
-    st.session_state.pagina = 'projetos'
+if st.sidebar.button("🏠 Dashboard", use_container_width=True): st.session_state.pagina = 'dashboard'
+if st.sidebar.button("🔍 Prospecção", use_container_width=True): st.session_state.pagina = 'prospeccao'
+if st.sidebar.button("💼 Meus Projetos", use_container_width=True): st.session_state.pagina = 'projetos'
 
 st.sidebar.markdown("---")
 nome_agencia = st.sidebar.text_input("Nome da sua agência:", "Minha Agência")
 
 # ==========================================
-# FUNÇÕES DE IA E HOSPEDAGEM
+# FUNÇÃO DE GERAR E HOSPEDAR O SITE
 # ==========================================
-def gerar_imagem_pollinations(prompt):
-    prompt_encoded = urllib.parse.quote(prompt)
-    url = f"https://image.pollinations.ai/prompt/{prompt_encoded}?width=1024&height=1024&nologo=true&model=flux"
-    return url
-
-def gerar_e_hospedar_site(prompt_usuario, api_key_groq):
+def gerar_e_hospedar_site(prompt_usuario, api_key_groq, url_imagem):
     try:
         client = Groq(api_key=api_key_groq)
         
-        instrucao_sistema = """
+        # PROMPT REFINADO: Sem navbar, foco total na imagem e design premium
+        instrucao_sistema = f"""
         Você é um Web Designer Sênior. Retorne APENAS um documento HTML completo e auto-contido.
-        Inline todo o CSS (pode usar Tailwind via CDN). Não use markdown, não adicione explicações.
-        O site deve ter um design premium e responsivo.
+        Inline todo o CSS (use Tailwind via CDN).
+        
+        DIRETRIZES OBRIGATÓRIAS:
+        1. NÃO crie um menu de navegação (Navbar) no topo. Queremos um visual limpo.
+        2. A primeira seção (Hero) deve ocupar 100% da tela (h-screen).
+        3. Use esta imagem de fundo na Hero section: {url_imagem}
+        4. Aplique um overlay escuro sobre a imagem para o texto ficar legível.
+        5. Coloque o Nome da Empresa em destaque, um subtítulo curto e o botão de WhatsApp no centro.
+        6. Abaixo da Hero, crie as seções de Serviços, Sobre Nós e Depoimentos de forma elegante.
         """
         
         chat_completion = client.chat.completions.create(
@@ -107,14 +115,10 @@ def gerar_e_hospedar_site(prompt_usuario, api_key_groq):
         
         resposta = requests.post(url_brewpage, json=payload, headers=headers)
         
-        # AQUI ESTAVA O ERRO: O BrewPage retorna 201, não 200.
         if resposta.status_code in [200, 201]:
             dados = resposta.json()
-            link_publico = dados.get('link') # A chave correta no JSON deles é 'link'
-            if link_publico:
-                return link_publico, "Site gerado com sucesso!"
-            else:
-                return None, f"Resposta do BrewPage sem link: {dados}"
+            link_publico = dados.get('link')
+            return link_publico, "Site gerado com sucesso!"
         else:
             return None, f"Erro no BrewPage (Status {resposta.status_code}): {resposta.text}"
             
@@ -142,11 +146,10 @@ elif st.session_state.pagina == 'projetos':
             st.session_state.etapa = 2
             st.rerun()
     else:
-        st.write("Você ainda não iniciou nenhum projeto. Vá para a aba de Prospecção para começar.")
+        st.write("Você ainda não iniciou nenhum projeto.")
 
 elif st.session_state.pagina == 'prospeccao':
     
-    # --- ETAPA 1: BUSCAR OS LEADS ---
     if st.session_state.etapa == 1:
         st.title("Novo Projeto: Encontre seus clientes")
         
@@ -156,10 +159,7 @@ elif st.session_state.pagina == 'prospeccao':
         with col2:
             estado = st.selectbox("Estado:", list(CIDADES_BR.keys()))
         with col3:
-            if estado == "Outro":
-                cidade = st.text_input("Digite a cidade:", "Sua Cidade")
-            else:
-                cidade = st.selectbox("Cidade:", CIDADES_BR[estado])
+            cidade = st.text_input("Cidade:", "Sua Cidade") if estado == "Outro" else st.selectbox("Cidade:", CIDADES_BR[estado])
                 
         filtro = st.checkbox("Filtrar empresas médias/pequenas (< 300 avaliações)", value=True)
 
@@ -183,10 +183,8 @@ elif st.session_state.pagina == 'prospeccao':
                         st.session_state.leads = results
                         st.session_state.nicho = nicho
                         st.session_state.cidade = cidade
-                        if results:
-                            st.success(f"{len(results)} leads encontrados!")
-                        else:
-                            st.warning("Nenhum lead encontrado.")
+                        if results: st.success(f"{len(results)} leads encontrados!")
+                        else: st.warning("Nenhum lead encontrado.")
                     except Exception as e:
                         st.error(f"Erro: {e}")
 
@@ -211,8 +209,7 @@ elif st.session_state.pagina == 'prospeccao':
                         st.write(f"📍 {end}")
                     with col_links:
                         st.markdown("**Ações Rápidas:**")
-                        if is_valido:
-                            st.markdown(f'<a href="{whatsapp_link}" target="_blank" class="action-link">📱 WhatsApp</a>', unsafe_allow_html=True)
+                        if is_valido: st.markdown(f'<a href="{whatsapp_link}" target="_blank" class="action-link">📱 WhatsApp</a>', unsafe_allow_html=True)
                         st.markdown(f'<a href="{maps_link}" target="_blank" class="action-link">📍 Maps</a>', unsafe_allow_html=True)
                         st.markdown(f'<a href="{insta_link}" target="_blank" class="action-link">📸 Instagram</a>', unsafe_allow_html=True)
                     with col_btn:
@@ -221,7 +218,6 @@ elif st.session_state.pagina == 'prospeccao':
                             st.session_state.etapa = 2
                             st.rerun()
 
-    # --- ETAPA 2: CONFIGURAR O DESIGN E INFORMAÇÕES ---
     elif st.session_state.etapa == 2:
         lead = st.session_state.empresa_selecionada
         nome = lead.get('displayName', {}).get('text')
@@ -230,7 +226,6 @@ elif st.session_state.pagina == 'prospeccao':
         
         st.title("Conte sobre o negócio")
         
-        # --- A GALERIA DE MODELOS VOLTOU AQUI ---
         st.subheader("Escolha um modelo de referência")
         modelos = {
             "Brasa Burger": "https://images.unsplash.com/photo-1568901346375-23c9450c58cd?w=400",
@@ -252,10 +247,8 @@ elif st.session_state.pagina == 'prospeccao':
         with st.container(border=True):
             st.subheader("Identidade Visual")
             col_c1, col_c2 = st.columns(2)
-            with col_c1:
-                cor_primaria = st.color_picker("Cor Principal", "#FF5722")
-            with col_c2:
-                cor_secundaria = st.color_picker("Cor Secundária", "#212121")
+            with col_c1: cor_primaria = st.color_picker("Cor Principal", "#FF5722")
+            with col_c2: cor_secundaria = st.color_picker("Cor Secundária", "#212121")
                 
         with st.container(border=True):
             st.subheader("Contato e Localização")
@@ -278,7 +271,6 @@ elif st.session_state.pagina == 'prospeccao':
                 st.session_state.etapa = 3
                 st.rerun()
 
-    # --- ETAPA 3: ABORDAGEM E PROMPT DO SITE ---
     elif st.session_state.etapa == 3:
         st.title("Abordagem e Criação do Site")
         
@@ -305,38 +297,30 @@ elif st.session_state.pagina == 'prospeccao':
                 st.code(f"Montei uma prévia de como ficaria a {nome}. Posso te mostrar em 5 minutos?", language="text")
 
         with tab2:
-            st.subheader("Prompt para gerar o site")
+            st.subheader("Prompt do Site")
             
-            if nicho in ["Hamburgueria", "Pizzaria", "Buffet", "Restaurante", "Sorveteria/Açaí"]:
-                menu = '"Início", "Cardápio", "Eventos", "Sobre", "Contato"'
-            else:
-                menu = '"Início", "Serviços", "Sobre", "Contato"'
-                
+            # Seleciona a imagem com base no nicho
+            url_imagem_fundo = IMAGENS_NICHO.get(nicho, IMAGENS_NICHO["Outro"])
+            
+            st.image(url_imagem_fundo, caption=f"Imagem de fundo selecionada para: {nicho}", use_column_width=True)
+            
             prompt = f"""Crie um site one-page premium para a empresa {nome} (Ramo: {nicho}, Cidade: {cidade}).
-Cores: Fundo {st.session_state.cor1}, Texto {st.session_state.cor2}.
-Layout: Texto grande à esquerda, imagem do produto à direita (estilo recortado).
-Menu: {menu}.
-Botões: "Solicitar Orçamento" e "Chamar no WhatsApp" (link: https://wa.me/55{st.session_state.tel_limpo}).
+Cores principais: Fundo {st.session_state.cor1}, Texto {st.session_state.cor2}.
+Design: Focado em conversão, visual limpo, sem menu de navegação no topo.
+Botões: "Chamar no WhatsApp" (link: https://wa.me/55{st.session_state.tel_limpo}).
 Inclua seção de serviços, sobre nós, endereço ({st.session_state.endereco}) e depoimentos.
-Use React e Tailwind CSS (via CDN). Retorne o HTML completo."""
+Use Tailwind CSS (via CDN). Retorne o HTML completo."""
             
             st.code(prompt, language="markdown")
 
             st.markdown("---")
             st.subheader("🚀 Gerar Site Automaticamente")
             
-            prompt_imagem = st.text_input(
-                "Descreva a imagem de fundo ideal para este site:", 
-                value=f"Imagem realista e profissional de {nicho.lower()} de alta qualidade, estilo comercial, iluminação cinematográfica, fundo limpo"
-            )
-            
             if st.button("Gerar e Hospedar Site Agora", use_container_width=True):
                 if "GROQ_API_KEY" in st.secrets:
-                    with st.spinner("Gerando imagem, criando o código e hospedando o site..."):
-                        url_imagem = gerar_imagem_pollinations(prompt_imagem)
-                        prompt_final = prompt + f"\n\nUse esta imagem como plano de fundo da seção hero: {url_imagem}"
+                    with st.spinner("Criando o código e hospedando o site..."):
                         
-                        link, resultado = gerar_e_hospedar_site(prompt_final, st.secrets["GROQ_API_KEY"])
+                        link, resultado = gerar_e_hospedar_site(prompt, st.secrets["GROQ_API_KEY"], url_imagem_fundo)
                         
                         if link:
                             st.success("Site gerado e hospedado com sucesso!")
@@ -345,7 +329,7 @@ Use React e Tailwind CSS (via CDN). Retorne o HTML completo."""
                         else:
                             st.error(resultado)
                 else:
-                    st.warning("⚠️ Configure a chave 'GROQ_API_KEY' nos Secrets do Streamlit para usar esta função.")
+                    st.warning("⚠️ Configure a chave 'GROQ_API_KEY' nos Secrets do Streamlit.")
             
         if st.button("⬅️ Voltar para Configurações", use_container_width=True):
             st.session_state.etapa = 2
