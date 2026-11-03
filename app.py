@@ -1,7 +1,6 @@
 import streamlit as st
 import requests
 import re
-import json
 import urllib.parse
 from groq import Groq
 
@@ -31,54 +30,22 @@ if 'etapa' not in st.session_state: st.session_state.etapa = 1
 if 'leads' not in st.session_state: st.session_state.leads = []
 if 'empresa_selecionada' not in st.session_state: st.session_state.empresa_selecionada = None
 
-# --- LISTAS ---
+# --- LISTAS DE NICHOS ---
 NICHOS = ["Hamburgueria", "Pizzaria", "Barbearia", "Sorveteria/Açaí", "Mecânica", "Lava Jato", "Buffet", "Outro"]
 
-# --- CARREGAR ESTADOS DO IBGE (com cache) ---
-@st.cache_data(ttl=86400) # Cache de 24 horas
-def carregar_estados():
-    try:
-        url = "https://servicodados.ibge.gov.br/api/v1/localidades/estados"
-        response = requests.get(url, timeout=10)
-        response.raise_for_status()
-        estados = response.json()
-        # Ordena alfabeticamente pelo nome
-        estados_ordenados = sorted([e['nome'] for e in estados])
-        return estados_ordenados
-    except Exception as e:
-        st.error(f"Erro ao carregar estados do IBGE: {e}")
-        # Fallback com os principais estados caso a API falhe
-        return ["Minas Gerais", "São Paulo", "Rio de Janeiro", "Piauí", "Maranhão", "Bahia", "Paraná", "Ceará", "Goiás"]
-
-# --- CARREGAR CIDADES DO IBGE (sob demanda, com cache) ---
-@st.cache_data(ttl=86400)
-def carregar_cidades(estado_nome):
-    try:
-        # Primeiro, precisamos da sigla (UF) do estado para a URL do IBGE
-        url_estados = "https://servicodados.ibge.gov.br/api/v1/localidades/estados"
-        response_estados = requests.get(url_estados, timeout=10)
-        response_estados.raise_for_status()
-        estados_data = response_estados.json()
-        
-        uf = None
-        for e in estados_data:
-            if e['nome'] == estado_nome:
-                uf = e['sigla']
-                break
-        
-        if not uf:
-            return ["Erro: Estado não encontrado"]
-
-        # Agora busca as cidades daquele estado
-        url_cidades = f"https://servicodados.ibge.gov.br/api/v1/localidades/estados/{uf}/municipios"
-        response_cidades = requests.get(url_cidades, timeout=10)
-        response_cidades.raise_for_status()
-        cidades = response_cidades.json()
-        
-        return sorted([c['nome'] for c in cidades])
-    except Exception as e:
-        st.error(f"Erro ao carregar cidades: {e}")
-        return ["Digite a cidade manualmente"]
+# --- LISTA DE CIDADES (Estática para não dar erro de conexão) ---
+CIDADES_BR = {
+    "Minas Gerais": ["Belo Horizonte", "Uberlândia", "Cataguases", "Juiz de Fora", "Contagem"],
+    "São Paulo": ["São Paulo", "Campinas", "Santos", "Ribeirão Preto", "Guarulhos"],
+    "Rio de Janeiro": ["Rio de Janeiro", "Niterói", "Nova Iguaçu", "Campos dos Goytacazes"],
+    "Piauí": ["Teresina", "Parnaíba", "Picos", "Timon"],
+    "Maranhão": ["São Luís", "Imperatriz", "Timon", "Caxias"],
+    "Bahia": ["Salvador", "Feira de Santana", "Vitória da Conquista"],
+    "Paraná": ["Curitiba", "Londrina", "Maringá"],
+    "Ceará": ["Fortaleza", "Caucaia", "Juazeiro do Norte"],
+    "Goiás": ["Goiânia", "Aparecida de Goiânia", "Anápolis"],
+    "Outro": ["Digitar manualmente"]
+}
 
 # --- CHAVE DE API DO MAPS ---
 if "GOOGLE_API_KEY" in st.secrets:
@@ -140,9 +107,10 @@ def gerar_e_hospedar_site(prompt_usuario, api_key_groq):
         
         resposta = requests.post(url_brewpage, json=payload, headers=headers)
         
-        if resposta.status_code == 200:
+        # AQUI ESTAVA O ERRO: O BrewPage retorna 201, não 200.
+        if resposta.status_code in [200, 201]:
             dados = resposta.json()
-            link_publico = dados.get('link') or dados.get('url')
+            link_publico = dados.get('link') # A chave correta no JSON deles é 'link'
             if link_publico:
                 return link_publico, "Site gerado com sucesso!"
             else:
@@ -158,7 +126,6 @@ def gerar_e_hospedar_site(prompt_usuario, api_key_groq):
 # ==========================================
 if st.session_state.pagina == 'dashboard':
     st.title("🏠 Dashboard")
-    st.write("Bem-vindo ao seu centro de comando.")
     col1, col2, col3 = st.columns(3)
     col1.metric("Leads na Memória", len(st.session_state.leads))
     col2.metric("Projetos Iniciados", "1" if st.session_state.empresa_selecionada else "0")
@@ -183,18 +150,16 @@ elif st.session_state.pagina == 'prospeccao':
     if st.session_state.etapa == 1:
         st.title("Novo Projeto: Encontre seus clientes")
         
-        # Carrega a lista de estados uma vez
-        estados_disponiveis = carregar_estados()
-        
         col1, col2, col3 = st.columns(3)
         with col1:
             nicho = st.selectbox("Qual o setor do negócio?", NICHOS)
         with col2:
-            estado = st.selectbox("Estado:", estados_disponiveis)
+            estado = st.selectbox("Estado:", list(CIDADES_BR.keys()))
         with col3:
-            # Carrega as cidades apenas quando o estado é selecionado
-            cidades_disponiveis = carregar_cidades(estado)
-            cidade = st.selectbox("Cidade:", cidades_disponiveis)
+            if estado == "Outro":
+                cidade = st.text_input("Digite a cidade:", "Sua Cidade")
+            else:
+                cidade = st.selectbox("Cidade:", CIDADES_BR[estado])
                 
         filtro = st.checkbox("Filtrar empresas médias/pequenas (< 300 avaliações)", value=True)
 
@@ -265,6 +230,21 @@ elif st.session_state.pagina == 'prospeccao':
         
         st.title("Conte sobre o negócio")
         
+        # --- A GALERIA DE MODELOS VOLTOU AQUI ---
+        st.subheader("Escolha um modelo de referência")
+        modelos = {
+            "Brasa Burger": "https://images.unsplash.com/photo-1568901346375-23c9450c58cd?w=400",
+            "Chapa Burger": "https://images.unsplash.com/photo-1550547660-d9450f859349?w=400",
+            "Smash House": "https://images.unsplash.com/photo-1594212699903-ec8a3eca50f5?w=400",
+        }
+        cols = st.columns(3)
+        for i, (nome_modelo, url_img) in enumerate(modelos.items()):
+            with cols[i]:
+                st.image(url_img, use_column_width=True)
+                if st.button(f"Selecionar {nome_modelo}", key=f"mod_{i}"):
+                    st.session_state.modelo_escolhido = nome_modelo
+                    st.success(f"Modelo '{nome_modelo}' selecionado!")
+
         with st.container(border=True):
             st.subheader("Identidade")
             nome_site = st.text_input("Nome do Site", value=nome)
@@ -361,7 +341,7 @@ Use React e Tailwind CSS (via CDN). Retorne o HTML completo."""
                         if link:
                             st.success("Site gerado e hospedado com sucesso!")
                             st.markdown(f"[**Clique aqui para ver o site do cliente**]({link})")
-                            st.info("O link do BrewPage é válido por 15 dias. Se precisar de um link permanente, você pode baixar o HTML ou usar um domínio próprio.")
+                            st.info("O link do BrewPage é privado e válido por 15 dias.")
                         else:
                             st.error(resultado)
                 else:
