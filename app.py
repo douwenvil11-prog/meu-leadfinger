@@ -66,19 +66,41 @@ def gerar_mensagem_abordagem(nome, nicho, cidade, nota, link_site=None, nome_age
         msg = f"Olá, tudo bem? Sou o consultor da {nome_agencia}. Estava procurando {nicho.lower()}s em {cidade} e vi que a de vocês tem nota {nota}, parabéns! Notei que vocês não têm um site. Posso te mandar uma prévia?"
     return msg
 
-def gerar_e_hospedar_site(prompt_usuario, api_key_groq, url_imagem):
+def gerar_e_hospedar_site(prompt_usuario, api_key_groq, url_imagem, endereco):
     try:
         client = Groq(api_key=api_key_groq)
+        
+        # Formatando o endereço para o link do mapa
+        endereco_encoded = urllib.parse.quote(endereco)
+        
         diretriz_master = f"""
         DIRETRIZ MASTER — DESENVOLVIMENTO DE SITES PROFISSIONAIS
         Atue como uma agência profissional premium. Crie sites com design moderno, identidade visual marcante, tipografia forte e imagens de alta qualidade.
+
         1. HERO SECTION: Imagem principal grande (Use esta: {url_imagem}), título impactante, dois botões de ação.
-        2. IDENTIDADE: Cores e fontes escolhidas de acordo com o nicho (Ex: Pizzaria = cores quentes; Advocacia = azul e cinza).
-        3. PROIBIDO: Layouts genéricos, emojis substituindo ícones, textos desalinhados, imagens de baixa qualidade.
+        2. IDENTIDADE: Cores e fontes escolhidas de acordo com o nicho.
+        3. PROIBIDO: Layouts genéricos, emojis substituindo ícones, textos desalinhados.
         4. CONVERSÃO: Botão "Chamar no WhatsApp" em destaque.
+
+        REGRAS CRÍTICAS PARA CORRIGIR ERROS ANTERIORES:
         
+        A) CARDÁPIO / SERVIÇOS COM FOTOS OBRIGATÓRIAS:
+        Na seção de cardápio/serviços, NÃO DEIXE NENHUM CARD SEM IMAGEM. Use imagens reais do Unsplash.
+        Exemplos de URLs de imagens de comida que você DEVE usar nos cards:
+        - Hambúrguer: https://images.unsplash.com/photo-1568901346375-23c9450c58cd?w=600&h=400&fit=crop
+        - Pizza: https://images.unsplash.com/photo-1513104890138-7c749659a591?w=600&h=400&fit=crop
+        - Batata Frita: https://images.unsplash.com/photo-1573080496219-bb080dd4f877?w=600&h=400&fit=crop
+        - Bebida/Refri: https://images.unsplash.com/photo-1622483767028-3f66f32aef97?w=600&h=400&fit=crop
+        (Se for outro nicho, use imagens do Unsplash relacionadas).
+
+        B) MAPA DO GOOGLE (SEM ERRO DE API KEY):
+        NÃO use chaves de API no mapa. Use o método de incorporação pública (iframe).
+        Use exatamente este código na seção "Onde Estamos":
+        <iframe src="https://maps.google.com/maps?q={endereco_encoded}&t=&z=15&ie=UTF8&iwloc=&output=embed" width="100%" height="300" style="border:0;" allowfullscreen="" loading="lazy"></iframe>
+
         INSTRUÇÃO TÉCNICA: Retorne APENAS o código HTML completo e auto-contido. Use Tailwind CSS via CDN. Não use markdown.
         """
+        
         chat_completion = client.chat.completions.create(
             messages=[{"role": "system", "content": diretriz_master}, {"role": "user", "content": prompt_usuario}],
             model="openai/gpt-oss-120b",
@@ -122,8 +144,6 @@ if st.session_state.pagina == 'dashboard':
     col1.metric("Leads no CRM", total_leads)
     col2.metric("Sites Gerados", sites_gerados)
     col3.metric("Clientes Fechados", fechados)
-    
-    st.info("💡 Dica: Use a aba de Prospecção para achar novos clientes e a aba CRM para gerenciar suas vendas.")
 
 # ==========================================
 # PÁGINA: CRM (Gerenciar Leads)
@@ -139,7 +159,6 @@ elif st.session_state.pagina == 'crm':
                 st.write(f"📍 {lead['endereco']}")
                 st.write(f"📞 {lead['telefone']}")
                 
-                # Mudar Status
                 novo_status = st.selectbox(
                     "Atualizar Status:", 
                     ["Novo Lead", "Site Criado", "Abordado", "Fechado", "Perdido"], 
@@ -155,7 +174,6 @@ elif st.session_state.pagina == 'crm':
                     msg = gerar_mensagem_abordagem(lead['nome'], lead['nicho'], lead['cidade'], lead['nota'], link_site=lead['site_url'], nome_agencia=nome_agencia)
                     st.text_area("Abordagem pronta:", msg, height=100, key=f"msg_{i}")
                 
-                # Botão para enviar zap
                 num_limpo = re.sub(r'\D', '', lead['telefone'])
                 if len(num_limpo) == 11 and num_limpo[2] == '9':
                     msg_encoded = urllib.parse.quote(gerar_mensagem_abordagem(lead['nome'], lead['nicho'], lead['cidade'], lead['nota'], link_site=lead.get('site_url'), nome_agencia=nome_agencia))
@@ -209,7 +227,6 @@ elif st.session_state.pagina == 'prospeccao':
                         st.write(f"📍 {end}")
                     with col_btn:
                         if st.button("Selecionar", key=f"sel_{i}", use_container_width=True):
-                            # Adiciona ao CRM
                             novo_lead = {
                                 "nome": nome, "endereco": end, "telefone": tel, 
                                 "nicho": st.session_state.nicho, "cidade": st.session_state.cidade, 
@@ -229,7 +246,7 @@ elif st.session_state.pagina == 'prospeccao':
         
         with tab1:
             url_img = IMAGENS_NICHO.get(lead['nicho'], IMAGENS_NICHO["Outro"])
-            st.image(url_img, caption="Imagem de Fundo Sugerida (Estilo de Agência)", use_column_width=True)
+            st.image(url_img, caption="Imagem de Fundo Sugerida", use_column_width=True)
             
             if st.button("Gerar e Hospedar Site com IA", use_container_width=True):
                 if "GROQ_API_KEY" in st.secrets:
@@ -237,11 +254,11 @@ elif st.session_state.pagina == 'prospeccao':
                         prompt = f"""Crie um site para {lead['nome']} (Ramo: {lead['nicho']}).
                         Endereço: {lead['endereco']}. Botão WhatsApp: https://wa.me/55{re.sub(r'\D', '', lead['telefone'])}"""
                         
-                        link, erro = gerar_e_hospedar_site(prompt, st.secrets["GROQ_API_KEY"], url_img)
+                        # Passamos o endereço para a função para consertar o mapa
+                        link, erro = gerar_e_hospedar_site(prompt, st.secrets["GROQ_API_KEY"], url_img, lead['endereco'])
                         
                         if link:
                             st.session_state.link_site_gerado = link
-                            # Atualiza o CRM
                             for l in st.session_state.crm_db:
                                 if l['nome'] == lead['nome']:
                                     l['site_url'] = link
