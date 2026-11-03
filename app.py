@@ -1,7 +1,8 @@
 import streamlit as st
 import requests
 import re
-import time
+import json
+import urllib.parse
 from groq import Groq
 
 st.set_page_config(page_title="LeadFinder PRO", layout="wide", page_icon="🚀")
@@ -24,7 +25,7 @@ st.markdown("""
     </style>
 """, unsafe_allow_html=True)
 
-# --- CONTROLE DE ESTADO DO APP ---
+# --- CONTROLE DE ESTADO ---
 if 'pagina' not in st.session_state: st.session_state.pagina = 'prospeccao'
 if 'etapa' not in st.session_state: st.session_state.etapa = 1
 if 'leads' not in st.session_state: st.session_state.leads = []
@@ -32,12 +33,35 @@ if 'empresa_selecionada' not in st.session_state: st.session_state.empresa_selec
 
 # --- LISTAS ---
 NICHOS = ["Hamburgueria", "Pizzaria", "Barbearia", "Sorveteria/Açaí", "Mecânica", "Lava Jato", "Buffet", "Outro"]
-CIDADES_BR = {
-    "Minas Gerais": ["Belo Horizonte", "Uberlândia", "Cataguases"],
-    "São Paulo": ["São Paulo", "Campinas"],
-    "Piauí": ["Teresina", "Parnaíba", "Timon"],
-    "Outro": ["Digitar manualmente"]
-}
+
+# --- CARREGAR ESTADOS E CIDADES DO BRASIL (com cache para não sobrecarregar a API) ---
+@st.cache_data(ttl=86400) # Cache de 24 horas
+def carregar_localidades():
+    try:
+        # 1. Baixa a lista de estados
+        url_estados = "https://raw.githubusercontent.com/giovanigenerali/br-cidades-estados-json/master/estados.json"
+        response_estados = requests.get(url_estados, timeout=10)
+        response_estados.raise_for_status()
+        estados = response_estados.json()
+        
+        # 2. Para cada estado, baixa a lista de cidades
+        localidades = {}
+        for uf in estados:
+            sigla = uf['sigla']
+            url_cidades = f"https://raw.githubusercontent.com/giovanigenerali/br-cidades-estados-json/master/cidades/{sigla}.json"
+            try:
+                response_cidades = requests.get(url_cidades, timeout=5)
+                response_cidades.raise_for_status()
+                cidades = response_cidades.json()
+                localidades[uf['nome']] = [cidade['nome'] for cidade in cidades]
+            except:
+                localidades[uf['nome']] = [] # Se falhar, deixa vazio
+        return localidades
+    except Exception as e:
+        st.error(f"Erro ao carregar lista de cidades: {e}")
+        return {"Erro": ["Digite a cidade manualmente"]}
+
+CIDADES_BR = carregar_localidades()
 
 # --- CHAVE DE API DO MAPS ---
 if "GOOGLE_API_KEY" in st.secrets:
@@ -62,52 +86,58 @@ st.sidebar.markdown("---")
 nome_agencia = st.sidebar.text_input("Nome da sua agência:", "Minha Agência")
 
 # ==========================================
-# FUNÇÃO DE GERAR E HOSPEDAR O SITE
+# FUNÇÕES DE IA E HOSPEDAGEM
 # ==========================================
+def gerar_imagem_pollinations(prompt):
+    """Gera uma URL de imagem realista usando a API gratuita do Pollinations.ai"""
+    prompt_encoded = urllib.parse.quote(prompt)
+    # Usando o modelo 'flux' para maior realismo
+    url = f"https://image.pollinations.ai/prompt/{prompt_encoded}?width=1024&height=1024&nologo=true&model=flux"
+    return url
+
 def gerar_e_hospedar_site(prompt_usuario, api_key_groq):
     try:
         # 1. Configura o cliente do Groq
         client = Groq(api_key=api_key_groq)
         
-        # 2. Faz a chamada para gerar o código HTML
+        # 2. Instrui a IA a retornar apenas HTML e a usar uma imagem de fundo
+        instrucao_sistema = """
+        Você é um Web Designer Sênior. Retorne APENAS um documento HTML completo e auto-contido.
+        Inline todo o CSS (pode usar Tailwind via CDN). Não use markdown, não adicione explicações.
+        O site deve ter um design premium e responsivo.
+        Use a seguinte imagem como plano de fundo da seção principal (hero): {imagem_url}.
+        """
+        
+        # 3. Chama a IA para gerar o código
         chat_completion = client.chat.completions.create(
             messages=[
-                {
-                    "role": "system",
-                    "content": "Você é um Web Designer Sênior. Retorne APENAS um documento HTML completo e auto-contido. Inline todo o CSS (Tailwind via CDN é permitido). Não use markdown, não adicione explicações, não coloque ```html no início."
-                },
-                {
-                    "role": "user",
-                    "content": prompt_usuario
-                }
+                {"role": "system", "content": instrucao_sistema},
+                {"role": "user", "content": prompt_usuario}
             ],
-            model="openai/gpt-oss-120b", # Modelo gratuito e potente
+            model="openai/gpt-oss-120b",
         )
-        
         codigo_html = chat_completion.choices[0].message.content
-        
-        # Limpa o código para garantir que é apenas HTML
         codigo_html = re.sub(r"^```(?:html)?\s*|\s*```$", "", codigo_html.strip())
+        
         if "<html" not in codigo_html.lower():
             return None, "A IA não retornou um código HTML válido."
 
-        # 3. Hospeda no PageDrop
-        # O PageDrop usa um formato multipart/form-data para upload
-        url_api_pagedrop = "https://pagedrop.dev/api/upload"
+        # 4. Hospeda no BrewPage (endpoint oficial)
+        url_brewpage = "https://brewpage.app/api/html"
+        headers = {'Content-Type': 'application/json'}
+        payload = {'content': codigo_html}
         
-        # Cria o arquivo em memória para enviar
-        files = {'file': ('index.html', codigo_html, 'text/html')}
+        resposta = requests.post(url_brewpage, json=payload, headers=headers)
         
-        # Faz o POST para o PageDrop
-        resposta = requests.post(url_api_pagedrop, files=files)
-        
-        # Verifica se deu certo e pega o link
         if resposta.status_code == 200:
             dados = resposta.json()
-            link_publico = dados.get('url')
-            return link_publico, "Site gerado com sucesso!"
+            link_publico = dados.get('link') or dados.get('url')
+            if link_publico:
+                return link_publico, "Site gerado com sucesso!"
+            else:
+                return None, f"Resposta do BrewPage sem link: {dados}"
         else:
-            return None, f"Erro no PageDrop (Status {resposta.status_code}): {resposta.text}"
+            return None, f"Erro no BrewPage (Status {resposta.status_code}): {resposta.text}"
             
     except Exception as e:
         return None, f"Erro ao gerar com Groq: {e}"
@@ -147,7 +177,10 @@ elif st.session_state.pagina == 'prospeccao':
         with col2:
             estado = st.selectbox("Estado:", list(CIDADES_BR.keys()))
         with col3:
-            cidade = st.text_input("Cidade:", "Sua Cidade") if estado == "Outro" else st.selectbox("Cidade:", CIDADES_BR[estado])
+            if estado in CIDADES_BR and CIDADES_BR[estado]:
+                cidade = st.selectbox("Cidade:", CIDADES_BR[estado])
+            else:
+                cidade = st.text_input("Cidade:", "Sua Cidade")
                 
         filtro = st.checkbox("Filtrar empresas médias/pequenas (< 300 avaliações)", value=True)
 
@@ -218,21 +251,6 @@ elif st.session_state.pagina == 'prospeccao':
         
         st.title("Conte sobre o negócio")
         
-        # Galeria de Modelos
-        st.subheader("Escolha um modelo de referência")
-        modelos = {
-            "Brasa Burger": "https://images.unsplash.com/photo-1568901346375-23c9450c58cd?w=400",
-            "Chapa Burger": "https://images.unsplash.com/photo-1550547660-d9450f859349?w=400",
-            "Smash House": "https://images.unsplash.com/photo-1594212699903-ec8a3eca50f5?w=400",
-        }
-        cols = st.columns(3)
-        for i, (nome_modelo, url_img) in enumerate(modelos.items()):
-            with cols[i]:
-                st.image(url_img, use_column_width=True)
-                if st.button(f"Selecionar {nome_modelo}", key=f"mod_{i}"):
-                    st.session_state.modelo_escolhido = nome_modelo
-                    st.success(f"Modelo '{nome_modelo}' selecionado!")
-
         with st.container(border=True):
             st.subheader("Identidade")
             nome_site = st.text_input("Nome do Site", value=nome)
@@ -314,15 +332,27 @@ Use React e Tailwind CSS (via CDN). Retorne o HTML completo."""
             st.markdown("---")
             st.subheader("🚀 Gerar Site Automaticamente")
             
+            # Campo para o prompt da imagem
+            prompt_imagem = st.text_input(
+                "Descreva a imagem de fundo ideal para este site:", 
+                value=f"Imagem realista e profissional de {nicho.lower()} de alta qualidade, estilo comercial, iluminação cinematográfica, fundo limpo"
+            )
+            
             if st.button("Gerar e Hospedar Site Agora", use_container_width=True):
                 if "GROQ_API_KEY" in st.secrets:
-                    with st.spinner("A IA está desenhando o site e o PageDrop está hospedando... (Pode levar 30 segundos)"):
-                        link, resultado = gerar_e_hospedar_site(prompt, st.secrets["GROQ_API_KEY"])
+                    with st.spinner("Gerando imagem, criando o código e hospedando o site..."):
+                        # 1. Gera a URL da imagem
+                        url_imagem = gerar_imagem_pollinations(prompt_imagem)
+                        
+                        # 2. Gera o site, passando a URL da imagem para o prompt
+                        prompt_final = prompt + f"\n\nUse esta imagem como plano de fundo da seção hero: {url_imagem}"
+                        
+                        link, resultado = gerar_e_hospedar_site(prompt_final, st.secrets["GROQ_API_KEY"])
                         
                         if link:
                             st.success("Site gerado e hospedado com sucesso!")
                             st.markdown(f"[**Clique aqui para ver o site do cliente**]({link})")
-                            st.info("Lembre-se: O PageDrop gratuito cria links temporários. Para o cliente ver depois, baixe o HTML ou use um domínio próprio.")
+                            st.info("O link do BrewPage é válido por 15 dias. Se precisar de um link permanente, você pode baixar o HTML ou usar um domínio próprio.")
                         else:
                             st.error(resultado)
                 else:
