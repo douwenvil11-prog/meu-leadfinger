@@ -1,380 +1,273 @@
-import os
-import re
-import sqlite3
-import urllib.parse
+import os, re, sqlite3, urllib.parse
+from datetime import datetime
 from pathlib import Path
-
 import requests
 import streamlit as st
 
-# ============================================================
-# DN.Ia — Busca de empresas e CRM de oportunidades
-# O DN.Ia encontra empresas; a criação dos sites é feita pelo usuário.
-# ============================================================
+APP_DIR = Path(__file__).resolve().parent
+DB_PATH = APP_DIR / "leadfinder.db"
 
-st.set_page_config(
-    page_title="DN.Ia | Busca de empresas",
-    page_icon="🔎",
-    layout="wide",
-    initial_sidebar_state="expanded",
-)
-
-DB_PATH = Path("dn_ia.db")
-
-NICHOS = [
-    "Hamburgueria", "Pizzaria", "Barbearia", "Sorveteria/Açaí",
-    "Mecânica", "Lava Jato", "Buffet", "Academia", "Clínica",
-    "Restaurante", "Loja de roupas", "Salão de beleza", "Pet shop",
-    "Odontologia", "Imobiliária", "Hotel/Pousada", "Outro",
-]
-
-CIDADES_BR = {
-    "Paraná": ["Cascavel", "Curitiba", "Londrina", "Maringá", "Foz do Iguaçu", "Toledo", "Ponta Grossa"],
-    "São Paulo": ["São Paulo", "Campinas", "Santos", "Ribeirão Preto", "Sorocaba"],
-    "Minas Gerais": ["Belo Horizonte", "Uberlândia", "Juiz de Fora", "Contagem"],
-    "Santa Catarina": ["Florianópolis", "Joinville", "Blumenau", "Chapecó"],
-    "Rio Grande do Sul": ["Porto Alegre", "Caxias do Sul", "Pelotas"],
-    "Rio de Janeiro": ["Rio de Janeiro", "Niterói", "Petrópolis"],
-    "Piauí": ["Teresina", "Parnaíba", "Picos"],
-    "Outro": [],
-}
-
-STATUS = ["Novo Lead", "Contato realizado", "Interessado", "Fechado", "Sem interesse"]
-
-# ---------------------------- Visual ----------------------------
+st.set_page_config(page_title="DN.Ia | Busca de empresas", page_icon="🎯", layout="wide")
 st.markdown("""
 <style>
-.stApp { background: #0b0e14; color: #e7edf7; }
-section[data-testid="stSidebar"] { background: #111827; border-right: 1px solid #263449; }
-section[data-testid="stSidebar"] h1 { color: #60a5fa; font-weight: 800; }
-h1, h2, h3 { color: #f8fafc !important; }
-div[data-testid="stMetric"] { background: #121c2b; border: 1px solid #263449; padding: 15px; border-radius: 13px; }
-.stButton > button, .stDownloadButton > button { border-radius: 9px; font-weight: 700; }
-.stButton > button[kind="primary"] { background: #2563eb; border: 0; }
-div[data-testid="stExpander"] { border: 1px solid #263449; border-radius: 12px; }
-.small-muted { color: #94a3b8; font-size: .88rem; }
+.stApp{background:#090e16;color:#edf3fb}.block-container{max-width:1450px;padding-top:1.2rem}
+[data-testid="stSidebar"]{background:#101925;border-right:1px solid #263448}
+div[data-testid="stMetric"]{background:#121d2b;border:1px solid #29394e;padding:13px;border-radius:13px}
+div[data-testid="stForm"]{background:#101925;border:1px solid #29394e;padding:15px;border-radius:13px}
+.stButton>button[kind="primary"]{background:#35d39a;color:#06140e;border:0;font-weight:800}
+.stButton>button{border-radius:10px}a{color:#63ddb1!important}
 </style>
 """, unsafe_allow_html=True)
 
-# ---------------------------- Banco de dados ----------------------------
-def db():
-    conn = sqlite3.connect(DB_PATH, timeout=20)
-    conn.row_factory = sqlite3.Row
-    return conn
+# Base nacional: capitais e centros regionais. Você pode adicionar qualquer cidade manualmente.
+CIDADES = {
+"Acre (AC)": ["Rio Branco", "Cruzeiro do Sul"], "Alagoas (AL)": ["Maceió", "Arapiraca"],
+"Amapá (AP)": ["Macapá", "Santana"], "Amazonas (AM)": ["Manaus", "Parintins", "Itacoatiara"],
+"Bahia (BA)": ["Salvador", "Feira de Santana", "Vitória da Conquista", "Itabuna", "Juazeiro", "Ilhéus", "Camaçari", "Barreiras", "Lauro de Freitas"],
+"Ceará (CE)": ["Fortaleza", "Juazeiro do Norte", "Sobral", "Crato", "Maracanaú", "Iguatu"],
+"Distrito Federal (DF)": ["Brasília"], "Espírito Santo (ES)": ["Vitória", "Vila Velha", "Serra", "Cariacica", "Cachoeiro de Itapemirim", "Linhares"],
+"Goiás (GO)": ["Goiânia", "Aparecida de Goiânia", "Anápolis", "Rio Verde", "Catalão", "Luziânia", "Jataí"],
+"Maranhão (MA)": ["São Luís", "Imperatriz", "Caxias", "Timon", "Bacabal"],
+"Mato Grosso (MT)": ["Cuiabá", "Várzea Grande", "Rondonópolis", "Sinop", "Tangará da Serra", "Cáceres"],
+"Mato Grosso do Sul (MS)": ["Campo Grande", "Dourados", "Três Lagoas", "Corumbá", "Ponta Porã"],
+"Minas Gerais (MG)": ["Belo Horizonte", "Uberlândia", "Contagem", "Juiz de Fora", "Betim", "Montes Claros", "Uberaba", "Governador Valadares", "Ipatinga", "Divinópolis", "Poços de Caldas", "Pouso Alegre"],
+"Pará (PA)": ["Belém", "Ananindeua", "Santarém", "Marabá", "Parauapebas", "Castanhal", "Altamira"],
+"Paraíba (PB)": ["João Pessoa", "Campina Grande", "Santa Rita", "Patos"],
+"Paraná (PR)": ["Curitiba", "Londrina", "Maringá", "Cascavel", "Foz do Iguaçu", "Ponta Grossa", "São José dos Pinhais", "Colombo", "Guarapuava", "Toledo", "Paranaguá", "Apucarana", "Umuarama", "Pato Branco", "Francisco Beltrão"],
+"Pernambuco (PE)": ["Recife", "Jaboatão dos Guararapes", "Olinda", "Caruaru", "Petrolina", "Paulista", "Cabo de Santo Agostinho", "Garanhuns"],
+"Piauí (PI)": ["Teresina", "Parnaíba", "Picos", "Floriano"],
+"Rio de Janeiro (RJ)": ["Rio de Janeiro", "Niterói", "São Gonçalo", "Duque de Caxias", "Nova Iguaçu", "Petrópolis", "Campos dos Goytacazes", "Volta Redonda", "Macaé", "Cabo Frio"],
+"Rio Grande do Norte (RN)": ["Natal", "Mossoró", "Parnamirim", "Caicó"],
+"Rio Grande do Sul (RS)": ["Porto Alegre", "Caxias do Sul", "Pelotas", "Canoas", "Santa Maria", "Gravataí", "Novo Hamburgo", "Passo Fundo", "São Leopoldo", "Rio Grande", "Erechim"],
+"Rondônia (RO)": ["Porto Velho", "Ji-Paraná", "Ariquemes", "Vilhena"], "Roraima (RR)": ["Boa Vista", "Rorainópolis"],
+"Santa Catarina (SC)": ["Florianópolis", "Joinville", "Blumenau", "São José", "Chapecó", "Itajaí", "Criciúma", "Jaraguá do Sul", "Lages", "Balneário Camboriú", "Brusque"],
+"São Paulo (SP)": ["São Paulo", "Campinas", "Guarulhos", "São Bernardo do Campo", "Santo André", "Osasco", "Sorocaba", "Ribeirão Preto", "Santos", "São José dos Campos", "Jundiaí", "Piracicaba", "Bauru", "Franca", "Marília", "Presidente Prudente", "Araraquara", "São Carlos", "Limeira", "Taubaté", "Barueri", "Mogi das Cruzes"],
+"Sergipe (SE)": ["Aracaju", "Nossa Senhora do Socorro", "Itabaiana", "Lagarto"],
+"Tocantins (TO)": ["Palmas", "Araguaína", "Gurupi", "Porto Nacional"]}
 
+NICHOS = {
+"Alimentação": ["Pizzaria", "Hamburgueria", "Restaurante", "Lanchonete", "Açaíteria", "Sorveteria", "Espetaria", "Churrascaria", "Pastelaria", "Cafeteria", "Padaria", "Confeitaria", "Marmitaria", "Comida japonesa", "Bar e petiscaria", "Delivery de comida", "Food truck"],
+"Beleza e estética": ["Barbearia", "Salão de beleza", "Clínica de estética", "Esmalteria", "Depilação", "Studio de sobrancelhas", "Bronzeamento", "Massoterapia", "Studio de tatuagem", "Spa", "Maquiadora"],
+"Saúde e bem-estar": ["Clínica médica", "Clínica odontológica", "Consultório odontológico", "Fisioterapia", "Psicologia", "Nutricionista", "Pilates", "Academia", "Personal trainer", "Clínica veterinária", "Laboratório de análises", "Ótica"],
+"Automotivo": ["Oficina mecânica", "Auto center", "Auto elétrica", "Lava-jato", "Estética automotiva", "Funilaria e pintura", "Loja de pneus", "Autopeças", "Revenda de carros", "Concessionária", "Oficina de motos", "Moto peças", "Som automotivo"],
+"Casa e construção": ["Material de construção", "Marcenaria", "Marmoraria", "Vidraçaria", "Serralheria", "Empresa de reformas", "Construtora", "Imobiliária", "Ar-condicionado", "Dedetizadora", "Desentupidora", "Energia solar", "Paisagismo", "Móveis planejados", "Limpeza de estofados", "Encanador", "Eletricista"],
+"Comércio": ["Loja de roupas", "Loja de calçados", "Loja de móveis", "Loja de celulares", "Assistência técnica de celulares", "Loja de informática", "Papelaria", "Floricultura", "Joalheria", "Loja de presentes", "Pet shop", "Loja de suplementos", "Loja de colchões", "Loja de decoração", "Loja de brinquedos"],
+"Eventos, lazer e turismo": ["Buffet", "Casa de festas", "Fotógrafo", "Filmagem de eventos", "Hotel", "Pousada", "Agência de turismo", "Salão de eventos", "Espaço de recreação", "Parque de diversão", "Escola de dança"],
+"Educação e profissionais": ["Escola de idiomas", "Escola particular", "Curso profissionalizante", "Escola de música", "Escritório de contabilidade", "Advocacia", "Despachante", "Consultoria empresarial", "Agência de marketing", "Empresa de segurança", "Transportadora", "Gráfica", "Corretora de seguros", "Coworking"]}
+STATUS = ["Novo", "Pesquisado", "Abordado", "Respondeu", "Interessado", "Orçamento enviado", "Fechado", "Perdido"]
+
+# Banco: conserva tabelas e dados antigos. Acrescenta apenas colunas ausentes.
+def conn_db():
+    c = sqlite3.connect(DB_PATH, check_same_thread=False)
+    c.row_factory = sqlite3.Row
+    return c
 
 def init_db():
-    # Mantém a tabela leads já usada nas versões anteriores, sem apagar dados.
-    with db() as conn:
-        conn.execute("""
-            CREATE TABLE IF NOT EXISTS leads (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                nome TEXT NOT NULL,
-                endereco TEXT,
-                telefone TEXT,
-                nicho TEXT,
-                cidade TEXT,
-                nota REAL DEFAULT 0,
-                status TEXT DEFAULT 'Novo Lead',
-                site_url TEXT,
-                html_path TEXT,
-                google_place_id TEXT,
-                observacoes TEXT,
-                data_criacao TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-            )
-        """)
-        columns = {row["name"] for row in conn.execute("PRAGMA table_info(leads)")}
-        migrations = {
-            "site_url": "ALTER TABLE leads ADD COLUMN site_url TEXT",
-            "html_path": "ALTER TABLE leads ADD COLUMN html_path TEXT",
-            "google_place_id": "ALTER TABLE leads ADD COLUMN google_place_id TEXT",
-            "observacoes": "ALTER TABLE leads ADD COLUMN observacoes TEXT",
-            "nota": "ALTER TABLE leads ADD COLUMN nota REAL DEFAULT 0",
-            "status": "ALTER TABLE leads ADD COLUMN status TEXT DEFAULT 'Novo Lead'",
-        }
-        for column, sql in migrations.items():
-            if column not in columns:
-                conn.execute(sql)
-
-
+    with conn_db() as c:
+        c.execute("CREATE TABLE IF NOT EXISTS leads (id INTEGER PRIMARY KEY AUTOINCREMENT, place_id TEXT, name TEXT, category TEXT, city TEXT, address TEXT, phone TEXT, website TEXT, maps_url TEXT, rating REAL, reviews INTEGER, instagram_url TEXT, score INTEGER DEFAULT 0, status TEXT DEFAULT 'Novo', notes TEXT DEFAULT '', created_at TEXT, updated_at TEXT)")
+        c.execute("CREATE TABLE IF NOT EXISTS projects (id INTEGER PRIMARY KEY AUTOINCREMENT, lead_id INTEGER, business_name TEXT, category TEXT, city TEXT, phone TEXT, address TEXT, html TEXT, hosted_url TEXT, created_at TEXT)")
+        c.execute("CREATE TABLE IF NOT EXISTS activities (id INTEGER PRIMARY KEY AUTOINCREMENT, lead_id INTEGER, action TEXT, details TEXT, created_at TEXT)")
+        existing = {r[1] for r in c.execute("PRAGMA table_info(leads)").fetchall()}
+        additions = {"place_id":"TEXT", "name":"TEXT", "category":"TEXT", "city":"TEXT", "address":"TEXT", "phone":"TEXT", "website":"TEXT", "maps_url":"TEXT", "rating":"REAL", "reviews":"INTEGER", "instagram_url":"TEXT", "score":"INTEGER DEFAULT 0", "status":"TEXT DEFAULT 'Novo'", "notes":"TEXT DEFAULT ''", "created_at":"TEXT", "updated_at":"TEXT"}
+        for col, typ in additions.items():
+            if col not in existing:
+                c.execute(f"ALTER TABLE leads ADD COLUMN {col} {typ}")
+        c.commit()
 init_db()
 
-# ---------------------------- Configuração ----------------------------
-def get_google_key():
-    try:
-        key = st.secrets.get("GOOGLE_API_KEY", "")
-    except Exception:
-        key = ""
-    if not key:
-        key = st.sidebar.text_input("Google Places API Key", type="password")
-    return key.strip() if key else ""
+def get_key(name):
+    try: return str(st.secrets.get(name, os.getenv(name, "")))
+    except Exception: return os.getenv(name, "")
 
+def phone_digits(p): return re.sub(r"\D", "", p or "")
+def wa_link(p):
+    n = phone_digits(p)
+    if n.startswith("55") and len(n) in (12,13): return "https://wa.me/" + n
+    if len(n) in (10,11): return "https://wa.me/55" + n
+    return ""
+def score(x):
+    v = 0
+    if not x.get("website"): v += 35
+    if x.get("phone"): v += 20
+    r, n = x.get("rating") or 0, x.get("reviews") or 0
+    if r >= 4.5: v += 15
+    elif r >= 4: v += 10
+    elif r >= 3.8: v += 5
+    if n >= 100: v += 15
+    elif n >= 30: v += 10
+    elif n >= 10: v += 5
+    if x.get("address"): v += 5
+    return min(v,100)
 
-google_api_key = get_google_key()
-nome_agencia = st.sidebar.text_input("Nome da sua agência", "DN.Ia Digital")
-st.sidebar.caption("DN.Ia • Business Finder")
-st.sidebar.divider()
-st.sidebar.info("O DN.Ia busca e organiza empresas. A criação e publicação dos sites ficam por sua conta.")
-
-# ---------------------------- Google Places ----------------------------
-def search_places(nicho, cidade, estado, nota_minima, max_results=20, somente_sem_site=True):
-    if not google_api_key:
-        raise RuntimeError("Configure sua GOOGLE_API_KEY na barra lateral ou em Secrets.")
-
+def google_search(api_key, query, pages):
     endpoint = "https://places.googleapis.com/v1/places:searchText"
-    headers = {
-        "Content-Type": "application/json",
-        "X-Goog-Api-Key": google_api_key,
-        "X-Goog-FieldMask": (
-            "places.id,places.displayName,places.formattedAddress,"
-            "places.nationalPhoneNumber,places.websiteUri,places.googleMapsUri,"
-            "places.rating,places.userRatingCount"
-        ),
-    }
-    payload = {
-        "textQuery": f"{nicho} em {cidade}, {estado}",
-        "maxResultCount": max_results,
-        "languageCode": "pt-BR",
-        "regionCode": "BR",
-    }
-    response = requests.post(endpoint, headers=headers, json=payload, timeout=35)
-    if not response.ok:
-        try:
-            detail = response.json().get("error", {}).get("message", response.text[:400])
-        except Exception:
-            detail = response.text[:400]
-        raise RuntimeError(f"Google Places ({response.status_code}): {detail}")
-
-    places = response.json().get("places", [])
-    results = []
-    for place in places:
-        rating = float(place.get("rating", 0) or 0)
-        has_site = bool(place.get("websiteUri"))
-        if rating < nota_minima:
-            continue
-        if somente_sem_site and has_site:
-            continue
-        results.append(place)
+    headers = {"Content-Type":"application/json", "X-Goog-Api-Key":api_key,
+      "X-Goog-FieldMask":"places.id,places.displayName,places.formattedAddress,places.nationalPhoneNumber,places.websiteUri,places.googleMapsUri,places.userRatingCount,places.rating,places.businessStatus,nextPageToken"}
+    results, token = [], None
+    for _ in range(pages):
+        payload = {"textQuery":query, "pageSize":20, "languageCode":"pt-BR", "regionCode":"BR"}
+        if token: payload["pageToken"] = token
+        resp = requests.post(endpoint, headers=headers, json=payload, timeout=40)
+        if resp.status_code >= 400:
+            try: msg = resp.json().get("error",{}).get("message",resp.text)
+            except Exception: msg = resp.text
+            raise RuntimeError(f"Google Places {resp.status_code}: {msg}")
+        data = resp.json(); results.extend(data.get("places",[])); token=data.get("nextPageToken")
+        if not token: break
     return results
 
+def normalize(p, niche, city):
+    x = {"place_id":p.get("id"), "name":p.get("displayName",{}).get("text","Empresa sem nome"), "category":niche, "city":city,
+         "address":p.get("formattedAddress",""), "phone":p.get("nationalPhoneNumber",""), "website":p.get("websiteUri",""),
+         "maps_url":p.get("googleMapsUri",""), "rating":p.get("rating"), "reviews":p.get("userRatingCount",0),
+         "business_status":p.get("businessStatus","")}
+    x["score"] = score(x); return x
 
-def add_lead(place, nicho, cidade):
-    nome = place.get("displayName", {}).get("text", "Empresa sem nome")
-    place_id = place.get("id", "")
-    with db() as conn:
-        if place_id:
-            exists = conn.execute(
-                "SELECT id FROM leads WHERE google_place_id = ?", (place_id,)
-            ).fetchone()
-            if exists:
-                return False
-        conn.execute("""
-            INSERT INTO leads
-            (nome, endereco, telefone, nicho, cidade, nota, status, google_place_id, site_url)
-            VALUES (?, ?, ?, ?, ?, ?, 'Novo Lead', ?, ?)
-        """, (
-            nome,
-            place.get("formattedAddress", ""),
-            place.get("nationalPhoneNumber", ""),
-            nicho,
-            cidade,
-            float(place.get("rating", 0) or 0),
-            place_id,
-            place.get("websiteUri", ""),
-        ))
-    return True
+def save_leads(items):
+    now=datetime.now().isoformat(timespec="seconds")
+    with conn_db() as c:
+        for x in items:
+            pid=x.get("place_id")
+            old=c.execute("SELECT id,status,notes,instagram_url,created_at FROM leads WHERE place_id=?",(pid,)).fetchone() if pid else None
+            vals=(x.get("name"),x.get("category"),x.get("city"),x.get("address"),x.get("phone"),x.get("website"),x.get("maps_url"),x.get("rating"),x.get("reviews"),x.get("score",0),now)
+            if old:
+                c.execute("UPDATE leads SET name=?,category=?,city=?,address=?,phone=?,website=?,maps_url=?,rating=?,reviews=?,score=?,updated_at=? WHERE id=?", vals+(old["id"],))
+            else:
+                c.execute("INSERT INTO leads (place_id,name,category,city,address,phone,website,maps_url,rating,reviews,score,status,notes,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,'Novo','',?,?)",(pid,)+vals[:-1]+(now,now))
+        c.commit()
 
+def leads_list(status="Todos", q="", no_site=False, min_score=0):
+    sql="SELECT * FROM leads WHERE 1=1"; p=[]
+    if status!="Todos": sql+=" AND status=?"; p.append(status)
+    if q: sql+=" AND (name LIKE ? OR city LIKE ? OR category LIKE ?)"; t=f"%{q}%"; p += [t,t,t]
+    if no_site: sql+=" AND (website IS NULL OR website='')"
+    sql+=" AND COALESCE(score,0)>=? ORDER BY score DESC,COALESCE(reviews,0) DESC"; p.append(min_score)
+    with conn_db() as c: return c.execute(sql,p).fetchall()
 
-def make_message(lead, agency):
-    return (
-        f"Olá! Tudo bem? Sou da {agency}. Conheci a {lead['nome']} e trabalho "
-        "com criação de sites profissionais para empresas. Tenho uma ideia de "
-        "como a presença online pode ajudar a apresentar melhor os serviços e "
-        "facilitar o contato com clientes. Posso explicar como funcionaria?"
-    )
+def update_lead(i,status,notes,instagram):
+    with conn_db() as c:
+        c.execute("UPDATE leads SET status=?,notes=?,instagram_url=?,updated_at=? WHERE id=?",(status,notes,instagram,datetime.now().isoformat(timespec="seconds"),i))
+        c.execute("INSERT INTO activities (lead_id,action,details,created_at) VALUES (?,?,?,?)",(i,"Lead atualizado",f"Status: {status}",datetime.now().isoformat(timespec="seconds")))
+        c.commit()
 
+def instagram_search(name,city):
+    q=urllib.parse.quote_plus(f"{name} {city} Instagram")
+    return "https://www.google.com/search?q="+q
 
-def whatsapp_link(phone, message):
-    digits = re.sub(r"\D", "", phone or "")
-    if not digits:
-        return ""
-    if not digits.startswith("55"):
-        digits = "55" + digits
-    return "https://wa.me/" + digits + "?text=" + urllib.parse.quote(message)
+# UI
+st.sidebar.title("🎯 DN.Ia")
+st.sidebar.caption("Busca nacional de empresas")
+page=st.sidebar.radio("Menu",["Buscar empresas","Minha lista","Painel","Configurações"])
+api_key=get_key("GOOGLE_API_KEY")
+if not api_key: api_key=st.sidebar.text_input("Google Places API Key",type="password")
+st.sidebar.caption("A chave não deve ser publicada no código do GitHub.")
 
-# ---------------------------- Navegação ----------------------------
-st.sidebar.title("🔎 DN.Ia")
-st.sidebar.caption("BUSINESS FINDER")
-menu = st.sidebar.radio("Menu", ["Dashboard", "Buscar empresas", "CRM de leads"], key="menu_nav")
-
-# ============================ DASHBOARD ============================
-if menu == "Dashboard":
-    st.title("DN.Ia")
-    st.write("Encontre empresas, identifique oportunidades e organize seus contatos em um só lugar.")
-    with db() as conn:
-        total = conn.execute("SELECT COUNT(*) FROM leads").fetchone()[0]
-        novos = conn.execute("SELECT COUNT(*) FROM leads WHERE status = 'Novo Lead'").fetchone()[0]
-        interessados = conn.execute("SELECT COUNT(*) FROM leads WHERE status = 'Interessado'").fetchone()[0]
-        fechados = conn.execute("SELECT COUNT(*) FROM leads WHERE status = 'Fechado'").fetchone()[0]
-
-    c1, c2, c3, c4 = st.columns(4)
-    c1.metric("Empresas salvas", total)
-    c2.metric("Novos contatos", novos)
-    c3.metric("Interessados", interessados)
-    c4.metric("Fechados", fechados)
-
-    st.subheader("Encontre novas oportunidades")
-    st.write("Pesquise empresas por segmento e cidade. Você pode filtrar para encontrar negócios que ainda não possuem site.")
-    if st.button("🔎 Começar busca", type="primary", use_container_width=True):
-        st.session_state["menu_nav"] = "Buscar empresas"
-        st.rerun()
-    st.caption("O DN.Ia não cria sites nesta versão. Ele cuida da prospecção e da organização dos leads.")
-
-# ============================ BUSCA ============================
-elif menu == "Buscar empresas":
-    st.title("Buscar empresas")
-    st.write("Encontre negócios no Google e descubra possíveis clientes para sua agência.")
-
-    col1, col2, col3 = st.columns(3)
-    with col1:
-        nicho = st.selectbox("Segmento", NICHOS)
-    with col2:
-        estado = st.selectbox("Estado", list(CIDADES_BR.keys()), index=0)
-    with col3:
-        if estado == "Outro":
-            cidade = st.text_input("Digite a cidade")
+if page=="Buscar empresas":
+    st.title("Encontrar empresas com potencial")
+    st.caption("Busque negócios em todos os estados e priorize empresas com boa reputação e sem site cadastrado.")
+    modo=st.radio("Abrangência",["Brasil inteiro","Escolher estado(s)","Escolher cidades"],horizontal=True)
+    todos=sorted({city for arr in CIDADES.values() for city in arr})
+    if modo=="Brasil inteiro":
+        st.info(f"Base com {len(CIDADES)} unidades federativas e {len(todos)} cidades. Escolha as cidades desta rodada para controlar o volume.")
+        default=["São Paulo","Rio de Janeiro","Belo Horizonte","Curitiba","Porto Alegre","Salvador","Recife","Fortaleza","Brasília","Goiânia","Florianópolis","Manaus","Belém","Campinas","Foz do Iguaçu","Cascavel"]
+        cities=st.multiselect("Cidades para pesquisar",todos,default=default)
+    elif modo=="Escolher estado(s)":
+        states=st.multiselect("Estados",list(CIDADES.keys()),default=["Paraná (PR)"])
+        options=sorted({x for s in states for x in CIDADES[s]})
+        cities=st.multiselect("Cidades",options,default=options[:8])
+    else:
+        cities=st.multiselect("Cidades de qualquer estado",todos,default=["Foz do Iguaçu","Cascavel","Curitiba","São Paulo"])
+    groups=st.multiselect("Segmentos",list(NICHOS.keys()),default=["Alimentação","Beleza e estética"])
+    available=[n for g in groups for n in NICHOS[g]]
+    niches=st.multiselect("Nichos específicos",available,default=available[:5])
+    a,b,c=st.columns(3)
+    pages=a.selectbox("Profundidade por pesquisa",[1,2,3],index=1,help="Até 20 resultados por página retornados pelo Google.")
+    min_rating=b.slider("Nota mínima",0.0,5.0,3.8,0.1)
+    max_queries=c.number_input("Máximo de consultas nesta rodada",1,150,15,1)
+    only_no_site=st.checkbox("Priorizar somente empresas sem site cadastrado",value=True)
+    require_phone=st.checkbox("Exigir telefone para contato",value=True)
+    combos=[(n,city) for city in cities for n in niches][:int(max_queries)]
+    st.write(f"**Consultas previstas:** {len(combos)} · **Resultados possíveis:** até {len(combos)*pages*20}")
+    if st.button("🔎 Buscar empresas",type="primary",use_container_width=True,disabled=not combos):
+        if not api_key: st.error("Adicione sua Google Places API Key na barra lateral ou nos Secrets do Streamlit.")
         else:
-            cidades = CIDADES_BR[estado]
-            cidade = st.selectbox("Cidade", cidades) if cidades else st.text_input("Digite a cidade")
+            found={}; errors=[]; bar=st.progress(0); status=st.empty()
+            for i,(n,city) in enumerate(combos,1):
+                status.write(f"Buscando **{n}** em **{city}** — {i}/{len(combos)}")
+                try:
+                    for p in google_search(api_key,f"{n} em {city}, Brasil",pages):
+                        if p.get("businessStatus") not in (None,"OPERATIONAL"): continue
+                        x=normalize(p,n,city)
+                        found[x.get("place_id") or f"{x['name']}|{city}"]=x
+                except Exception as e: errors.append(f"{n} / {city}: {e}")
+                bar.progress(i/len(combos))
+            all_items=list(found.values())
+            filtered=[x for x in all_items if (not only_no_site or not x["website"]) and (not require_phone or x["phone"]) and (x["rating"] or 0)>=min_rating]
+            save_leads(filtered); status.empty(); bar.empty()
+            st.success(f"{len(filtered)} oportunidades salvas de {len(all_items)} empresas recebidas.")
+            st.info("‘Sem site cadastrado’ significa que o Google não retornou um site. A empresa pode ter site fora do cadastro; confirme antes de abordar.")
+            if errors:
+                with st.expander(f"Ver {len(errors)} consultas com erro"):
+                    for e in errors: st.warning(e)
+    st.divider(); st.subheader("Oportunidades salvas")
+    x,y,z=st.columns([2,1,1]); q=x.text_input("Filtrar empresa, cidade ou nicho"); quality=y.selectbox("Potencial mínimo",["Todos","50+","70+","85+"]); no_site=z.checkbox("Sem site cadastrado",True)
+    minscore={"Todos":0,"50+":50,"70+":70,"85+":85}[quality]
+    rows=leads_list(q=q,no_site=no_site,min_score=minscore)
+    if not rows: st.info("Nenhuma oportunidade com esses filtros. Faça uma busca ou ajuste os filtros.")
+    for r in rows[:100]:
+        with st.container(border=True):
+            left,mid,right=st.columns([3,2,1])
+            with left:
+                st.markdown(f"**{r['name']}**")
+                st.caption(f"{r['category'] or 'Empresa'} · {r['city'] or 'Cidade não informada'}")
+                st.write(f"⭐ {r['rating'] or '—'} · {r['reviews'] or 0} avaliações · **Potencial {r['score'] or 0}/100**")
+                st.caption(r['address'] or "Endereço não informado")
+            with mid:
+                st.write(f"Telefone: {r['phone'] or 'Não informado'}")
+                st.write(f"Site: {r['website'] or 'Não cadastrado no Google'}")
+                link=wa_link(r['phone'])
+                if link: st.markdown(f"[Abrir WhatsApp]({link})")
+                st.markdown(f"[Pesquisar Instagram]({instagram_search(r['name'],r['city'] or '')})")
+                if r['maps_url']: st.markdown(f"[Google Maps]({r['maps_url']})")
+            with right: st.write(f"**{r['status']}**")
+elif page=="Minha lista":
+    st.title("Minha lista de empresas")
+    q=st.text_input("Buscar nome, cidade ou nicho"); status=st.selectbox("Etapa",["Todos"]+STATUS); no_site=st.checkbox("Somente sem site cadastrado",False)
+    rows=leads_list(status,q,no_site)
+    if not rows: st.info("Sua lista ainda está vazia.")
+    else:
+        labels=[f"{r['name']} — {r['city']} — #{r['id']}" for r in rows]
+        chosen=st.selectbox("Selecione uma empresa",range(len(rows)),format_func=lambda i:labels[i])
+        r=rows[chosen]
+        a,b,c=st.columns(3); a.metric("Potencial",f"{r['score'] or 0}/100"); b.metric("Nota",r['rating'] or "—"); c.metric("Avaliações",r['reviews'] or 0)
+        st.write(f"**Endereço:** {r['address'] or 'Não informado'}")
+        st.write(f"**Telefone:** {r['phone'] or 'Não informado'}")
+        st.write(f"**Site:** {r['website'] or 'Não cadastrado no Google — confirmar manualmente'}")
+        link=wa_link(r['phone'])
+        if link: st.link_button("Abrir WhatsApp",link)
+        st.link_button("Pesquisar Instagram",instagram_search(r['name'],r['city'] or ''))
+        if r['maps_url']: st.link_button("Abrir Google Maps",r['maps_url'])
+        with st.form(f"edit_{r['id']}"):
+            status_new=st.selectbox("Etapa da prospecção",STATUS,index=STATUS.index(r['status']) if r['status'] in STATUS else 0)
+            insta=st.text_input("Instagram confirmado (opcional)",value=r['instagram_url'] or "")
+            notes=st.text_area("Anotações",value=r['notes'] or "")
+            if st.form_submit_button("Salvar alterações",type="primary"):
+                update_lead(r['id'],status_new,notes,insta); st.success("Lead atualizado."); st.rerun()
+elif page=="Painel":
+    st.title("Painel de prospecção"); rows=leads_list()
+    counts={s:sum(1 for r in rows if r['status']==s) for s in STATUS}
+    a,b,c,d=st.columns(4); a.metric("Empresas salvas",len(rows)); b.metric("Sem site cadastrado",sum(1 for r in rows if not r['website'])); c.metric("Interessados",counts['Interessado']); d.metric("Fechados",counts['Fechado'])
+    st.subheader("Funil comercial")
+    cols=st.columns(4)
+    for col,s in zip(cols,["Novo","Abordado","Respondeu","Interessado"]): col.metric(s,counts[s])
+    st.subheader("Melhores oportunidades")
+    for r in rows[:15]: st.write(f"**{r['name']}** · {r['category']} · {r['city']} · potencial {r['score']}/100")
+else:
+    st.title("Configurações")
+    st.markdown("No Streamlit Cloud, configure em **App → Settings → Secrets**:")
+    st.code('GOOGLE_API_KEY = "sua-chave-google"',language="toml")
+    st.markdown("Ative **Places API (New)** no Google Cloud, configure faturamento, restrinja a chave à API necessária e crie alertas de orçamento. Nunca publique a chave no GitHub.")
+    st.warning("A API Google Places pode gerar custos. Limite de consultas no app ajuda a controlar o volume, mas não substitui os limites de orçamento do Google Cloud.")
+    st.markdown("**Compatibilidade:** o app mantém o banco `leadfinder.db` e as tabelas antigas `leads`, `projects` e `activities`. Não apague esse arquivo ao atualizar.")
 
-    c4, c5, c6 = st.columns([1, 1, 1])
-    with c4:
-        nota_minima = st.slider("Nota mínima no Google", 0.0, 5.0, 3.5, 0.1)
-    with c5:
-        quantidade = st.selectbox("Quantidade máxima", [5, 10, 15, 20], index=3)
-    with c6:
-        somente_sem_site = st.checkbox("Somente empresas sem site", value=True)
-
-    if st.button("🔎 Buscar oportunidades", type="primary", use_container_width=True):
-        if not cidade.strip():
-            st.warning("Informe uma cidade para realizar a busca.")
-        else:
-            try:
-                with st.spinner("Buscando empresas no Google Maps..."):
-                    st.session_state["resultados_busca"] = search_places(
-                        nicho, cidade.strip(), estado, nota_minima, quantidade, somente_sem_site
-                    )
-                    st.session_state["busca_nicho"] = nicho
-                    st.session_state["busca_cidade"] = cidade.strip()
-                st.success(f"Busca concluída: {len(st.session_state['resultados_busca'])} empresa(s) encontrada(s).")
-            except Exception as exc:
-                st.error(str(exc))
-
-    resultados = st.session_state.get("resultados_busca", [])
-    if resultados:
-        st.subheader("Resultados encontrados")
-        for i, place in enumerate(resultados):
-            nome = place.get("displayName", {}).get("text", "Empresa sem nome")
-            endereco = place.get("formattedAddress", "Endereço não informado")
-            telefone = place.get("nationalPhoneNumber", "Telefone não informado")
-            nota = place.get("rating", "Sem nota")
-            site = place.get("websiteUri", "")
-            maps = place.get("googleMapsUri", "")
-            with st.container(border=True):
-                info, actions = st.columns([4, 1.4])
-                with info:
-                    st.markdown(f"### {nome}")
-                    st.caption(f"📍 {endereco}")
-                    st.caption(f"☎️ {telefone}  •  ⭐ {nota}")
-                    if site:
-                        st.caption(f"🌐 Site: {site}")
-                    else:
-                        st.caption("🌐 Não foi encontrado um site oficial no Google Places")
-                    if maps:
-                        st.markdown(f"[Ver no Google Maps]({maps})")
-                with actions:
-                    if st.button("Salvar no CRM", key=f"save_{i}", use_container_width=True):
-                        try:
-                            added = add_lead(place, st.session_state.get("busca_nicho", nicho), st.session_state.get("busca_cidade", cidade))
-                            if added:
-                                st.success("Empresa salva!")
-                            else:
-                                st.info("Essa empresa já está no CRM.")
-                        except Exception as exc:
-                            st.error(f"Não foi possível salvar: {exc}")
-                    link = whatsapp_link(telefone, f"Olá! Tudo bem? Conheci a {nome} e gostaria de apresentar uma ideia de site profissional para a empresa. Posso falar com vocês?")
-                    if link:
-                        st.link_button("WhatsApp", link, use_container_width=True)
-    elif "resultados_busca" in st.session_state:
-        st.info("Nenhuma empresa correspondeu aos filtros. Tente diminuir a nota mínima ou desmarcar o filtro de empresas sem site.")
-
-# ============================ CRM ============================
-elif menu == "CRM de leads":
-    st.title("CRM de leads")
-    st.write("Todas as empresas que você salvou nas buscas ficam organizadas aqui.")
-
-    with st.expander("➕ Adicionar empresa manualmente"):
-        with st.form("manual_lead"):
-            c1, c2 = st.columns(2)
-            nome = c1.text_input("Nome da empresa")
-            telefone = c2.text_input("Telefone/WhatsApp")
-            endereco = c1.text_input("Endereço")
-            cidade_manual = c2.text_input("Cidade")
-            nicho_manual = st.selectbox("Segmento", NICHOS, key="manual_nicho")
-            salvar = st.form_submit_button("Salvar empresa")
-            if salvar:
-                if not nome.strip():
-                    st.error("Informe o nome da empresa.")
-                else:
-                    with db() as conn:
-                        conn.execute("""
-                            INSERT INTO leads (nome, telefone, endereco, cidade, nicho, status)
-                            VALUES (?, ?, ?, ?, ?, 'Novo Lead')
-                        """, (nome.strip(), telefone.strip(), endereco.strip(), cidade_manual.strip(), nicho_manual))
-                    st.success("Empresa cadastrada no CRM.")
-                    st.rerun()
-
-    filtro = st.selectbox("Filtrar por status", ["Todos"] + STATUS)
-    with db() as conn:
-        leads = conn.execute("SELECT * FROM leads ORDER BY id DESC").fetchall()
-
-    exibidos = [lead for lead in leads if filtro == "Todos" or lead["status"] == filtro]
-    if not exibidos:
-        st.info("Nenhuma empresa cadastrada com esse filtro. Faça uma busca ou adicione uma empresa manualmente.")
-
-    for lead in exibidos:
-        with st.expander(f"🏢 {lead['nome']}  •  {lead['status']}"):
-            st.write(f"**Segmento:** {lead['nicho'] or 'Não informado'}")
-            st.write(f"**Cidade:** {lead['cidade'] or 'Não informada'}")
-            st.write(f"**Endereço:** {lead['endereco'] or 'Não informado'}")
-            st.write(f"**Telefone:** {lead['telefone'] or 'Não informado'}")
-            st.write(f"**Nota Google:** {lead['nota'] or 'Sem nota'}")
-            if lead["site_url"]:
-                st.write(f"**Site informado pelo Google:** {lead['site_url']}")
-
-            novo_status = st.selectbox(
-                "Etapa do contato", STATUS,
-                index=STATUS.index(lead["status"]) if lead["status"] in STATUS else 0,
-                key=f"status_{lead['id']}"
-            )
-            observacoes = st.text_area("Anotações", value=lead["observacoes"] or "", key=f"obs_{lead['id']}")
-            a, b = st.columns(2)
-            with a:
-                if st.button("Salvar alterações", key=f"update_{lead['id']}", use_container_width=True):
-                    with db() as conn:
-                        conn.execute(
-                            "UPDATE leads SET status = ?, observacoes = ? WHERE id = ?",
-                            (novo_status, observacoes, lead["id"])
-                        )
-                    st.success("Lead atualizado.")
-                    st.rerun()
-            with b:
-                message = make_message(lead, nome_agencia)
-                link = whatsapp_link(lead["telefone"], message)
-                if link:
-                    st.link_button("Conversar no WhatsApp", link, use_container_width=True)
-                else:
-                    st.caption("Cadastre um telefone para abrir o WhatsApp.")
-
-st.sidebar.divider()
-st.sidebar.caption("DN.Ia • Busca de empresas e organização de leads")
+st.divider(); st.caption("DN.Ia · Busca e organização de oportunidades comerciais. Dados de site/Instagram devem ser confirmados antes do contato.")
