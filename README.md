@@ -1,33 +1,24 @@
-# DN.Ia — Prospecção nacional
+# DN.Ia — Prospecção nacional 3.1
 
-Aplicativo Streamlit para pesquisar empresas em cidades de todos os estados brasileiros, priorizando negócios com boas avaliações, telefone e sem site cadastrado no Google Places.
+Aplicativo Streamlit para encontrar empresas em cidades brasileiras, organizar leads e priorizar oportunidades sem site cadastrado.
 
-## Configuração no Streamlit Cloud
-Em **App → Settings → Secrets**, adicione:
+## Atualização no Streamlit Cloud
+1. Substitua o `app.py` e o `requirements.txt` no repositório GitHub pelos arquivos desta pasta.
+2. Faça Commit.
+3. No Streamlit Cloud, aguarde o app reiniciar. Não apague `leadfinder.db`.
+4. Mantenha `GOOGLE_API_KEY` nos Secrets.
 
-```toml
-GOOGLE_API_KEY = "sua-chave-google"
-```
+## Google Places
+Ative Places API (New), configure faturamento e confira as cotas de `SearchTextRequest`. O erro 429 `Quota exceeded` significa que a cota disponível foi atingida. O app agora interrompe a rodada ao detectar esse erro, em vez de continuar repetindo chamadas. O cache reduz chamadas repetidas idênticas por até 24 horas, mas não aumenta a cota do Google.
 
-Ative **Places API (New)** no Google Cloud, configure faturamento, restrições da chave e alertas de orçamento. A busca pode gerar custos conforme o uso e os campos solicitados.
+## Filtro de WhatsApp
+O app só salva e mostra telefones celulares brasileiros no formato DDD + 9 dígitos, com o primeiro dígito do número sendo 9. Linhas fixas (inclusive as iniciadas por 3) e números incompletos são descartados. A validação do formato não garante que a conta esteja ativa no WhatsApp.
 
-## Executar localmente
-
-```bash
-pip install -r requirements.txt
-streamlit run app.py
-```
-
-## O que o app faz
-- Pesquisa empresas por nicho e cidade no Brasil.
-- Inclui categorias amplas e cidades de todos os 26 estados e do Distrito Federal.
-- Permite limitar consultas por rodada para controlar o volume.
-- Prioriza empresas sem site cadastrado, com telefone e boas avaliações.
-- Organiza leads em etapas comerciais e permite anotações e Instagram confirmado.
-- Abre links de WhatsApp, Google Maps e pesquisa de Instagram.
-
-## Importante
-“Sem site cadastrado” significa que o Google Places não retornou um website. Isso não comprova que a empresa não tenha site. Confirme manualmente antes de abordar. O Google limita resultados por pesquisa; a opção “Brasil inteiro” usa a base de cidades listada no app e as cidades escolhidas na rodada, não faz um censo de todas as empresas brasileiras.
+## Nichos
+Inclui categorias para alimentação, beleza, saúde, automotivo, casa/construção, comércio, lutas/artes marciais, esportes, eventos, turismo, educação e serviços profissionais.
 
 ## Banco de dados
-O app mantém o arquivo `leadfinder.db` e as tabelas antigas. Faça backup antes de atualizar. Em hospedagens com disco efêmero, use armazenamento persistente.
+O app mantém as tabelas e os registros existentes em `leadfinder.db`; não exclua esse arquivo. Faça backup antes de alterações.
+
+## Observação
+“Sem site cadastrado” significa que o Google Places não retornou um website; confirme manualmente antes de abordar. A busca usa a lista de cidades disponível no app e não cobre todos os municípios do Brasil.

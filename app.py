@@ -7,10 +7,10 @@ import streamlit as st
 APP_DIR = Path(__file__).resolve().parent
 DB_PATH = APP_DIR / "leadfinder.db"
 
-st.set_page_config(page_title="DN.Ia | Busca de empresas", page_icon="🎯", layout="wide")
+st.set_page_config(page_title="DN.Ia | Busca de empresas", page_icon="🎯", layout="centered")
 st.markdown("""
 <style>
-.stApp{background:#090e16;color:#edf3fb}.block-container{max-width:1450px;padding-top:1.2rem}
+.stApp{background:#090e16;color:#edf3fb}.block-container{max-width:900px;padding:1rem .8rem 4rem}
 [data-testid="stSidebar"]{background:#101925;border-right:1px solid #263448}
 div[data-testid="stMetric"]{background:#121d2b;border:1px solid #29394e;padding:13px;border-radius:13px}
 div[data-testid="stForm"]{background:#101925;border:1px solid #29394e;padding:15px;border-radius:13px}
@@ -52,6 +52,8 @@ NICHOS = {
 "Automotivo": ["Oficina mecânica", "Auto center", "Auto elétrica", "Lava-jato", "Estética automotiva", "Funilaria e pintura", "Loja de pneus", "Autopeças", "Revenda de carros", "Concessionária", "Oficina de motos", "Moto peças", "Som automotivo"],
 "Casa e construção": ["Material de construção", "Marcenaria", "Marmoraria", "Vidraçaria", "Serralheria", "Empresa de reformas", "Construtora", "Imobiliária", "Ar-condicionado", "Dedetizadora", "Desentupidora", "Energia solar", "Paisagismo", "Móveis planejados", "Limpeza de estofados", "Encanador", "Eletricista"],
 "Comércio": ["Loja de roupas", "Loja de calçados", "Loja de móveis", "Loja de celulares", "Assistência técnica de celulares", "Loja de informática", "Papelaria", "Floricultura", "Joalheria", "Loja de presentes", "Pet shop", "Loja de suplementos", "Loja de colchões", "Loja de decoração", "Loja de brinquedos"],
+"Lutas e artes marciais": ["Academia de luta", "Academia de boxe", "Boxe", "Muay Thai", "Jiu-jitsu", "MMA", "Kickboxing", "Karatê", "Taekwondo", "Judô", "Capoeira", "Wrestling", "Defesa pessoal", "Escola de artes marciais", "Academia de kickboxing"],
+"Esportes e atividades": ["Academia", "Crossfit", "Funcional", "Personal trainer", "Escola de futebol", "Escolinha de futebol", "Quadra society", "Arena esportiva", "Clube esportivo", "Natação", "Dança", "Ginástica", "Pilates", "Yoga", "Beach tennis", "Futevôlei", "Tênis"],
 "Eventos, lazer e turismo": ["Buffet", "Casa de festas", "Fotógrafo", "Filmagem de eventos", "Hotel", "Pousada", "Agência de turismo", "Salão de eventos", "Espaço de recreação", "Parque de diversão", "Escola de dança"],
 "Educação e profissionais": ["Escola de idiomas", "Escola particular", "Curso profissionalizante", "Escola de música", "Escritório de contabilidade", "Advocacia", "Despachante", "Consultoria empresarial", "Agência de marketing", "Empresa de segurança", "Transportadora", "Gráfica", "Corretora de seguros", "Coworking"]}
 STATUS = ["Novo", "Pesquisado", "Abordado", "Respondeu", "Interessado", "Orçamento enviado", "Fechado", "Perdido"]
@@ -80,10 +82,16 @@ def get_key(name):
     except Exception: return os.getenv(name, "")
 
 def phone_digits(p): return re.sub(r"\D", "", p or "")
+def is_whatsapp_mobile(p):
+    """Aceita apenas celular brasileiro atual: DDD + 9 dígitos, com nono dígito 9."""
+    n = phone_digits(p)
+    if n.startswith("55") and len(n) == 13:
+        n = n[2:]
+    return len(n) == 11 and n[:2].isdigit() and n[2] == "9" and n.isdigit()
 def wa_link(p):
     n = phone_digits(p)
-    if n.startswith("55") and len(n) in (12,13): return "https://wa.me/" + n
-    if len(n) in (10,11): return "https://wa.me/55" + n
+    if n.startswith("55") and len(n) == 13 and is_whatsapp_mobile(n): return "https://wa.me/" + n
+    if is_whatsapp_mobile(n): return "https://wa.me/55" + n
     return ""
 def score(x):
     v = 0
@@ -99,6 +107,7 @@ def score(x):
     if x.get("address"): v += 5
     return min(v,100)
 
+@st.cache_data(ttl=86400, show_spinner=False)
 def google_search(api_key, query, pages):
     endpoint = "https://places.googleapis.com/v1/places:searchText"
     headers = {"Content-Type":"application/json", "X-Goog-Api-Key":api_key,
@@ -124,6 +133,7 @@ def normalize(p, niche, city):
     x["score"] = score(x); return x
 
 def save_leads(items):
+    items = [x for x in items if is_whatsapp_mobile(x.get("phone"))]
     now=datetime.now().isoformat(timespec="seconds")
     with conn_db() as c:
         for x in items:
@@ -142,7 +152,8 @@ def leads_list(status="Todos", q="", no_site=False, min_score=0):
     if q: sql+=" AND (name LIKE ? OR city LIKE ? OR category LIKE ?)"; t=f"%{q}%"; p += [t,t,t]
     if no_site: sql+=" AND (website IS NULL OR website='')"
     sql+=" AND COALESCE(score,0)>=? ORDER BY score DESC,COALESCE(reviews,0) DESC"; p.append(min_score)
-    with conn_db() as c: return c.execute(sql,p).fetchall()
+    with conn_db() as c: rows = c.execute(sql,p).fetchall()
+    return [r for r in rows if is_whatsapp_mobile(r["phone"])]
 
 def update_lead(i,status,notes,instagram):
     with conn_db() as c:
@@ -163,73 +174,85 @@ if not api_key: api_key=st.sidebar.text_input("Google Places API Key",type="pass
 st.sidebar.caption("A chave não deve ser publicada no código do GitHub.")
 
 if page=="Buscar empresas":
-    st.title("Encontrar empresas com potencial")
-    st.caption("Busque negócios em todos os estados e priorize empresas com boa reputação e sem site cadastrado.")
-    modo=st.radio("Abrangência",["Brasil inteiro","Escolher estado(s)","Escolher cidades"],horizontal=True)
+    st.title("🎯 Encontrar empresas")
+    st.caption("Escolha onde procurar, selecione os nichos e receba somente empresas com celular válido para WhatsApp.")
     todos=sorted({city for arr in CIDADES.values() for city in arr})
-    if modo=="Brasil inteiro":
-        st.info(f"Base com {len(CIDADES)} unidades federativas e {len(todos)} cidades. Escolha as cidades desta rodada para controlar o volume.")
-        default=["São Paulo","Rio de Janeiro","Belo Horizonte","Curitiba","Porto Alegre","Salvador","Recife","Fortaleza","Brasília","Goiânia","Florianópolis","Manaus","Belém","Campinas","Foz do Iguaçu","Cascavel"]
-        cities=st.multiselect("Cidades para pesquisar",todos,default=default)
-    elif modo=="Escolher estado(s)":
-        states=st.multiselect("Estados",list(CIDADES.keys()),default=["Paraná (PR)"])
-        options=sorted({x for s in states for x in CIDADES[s]})
-        cities=st.multiselect("Cidades",options,default=options[:8])
-    else:
-        cities=st.multiselect("Cidades de qualquer estado",todos,default=["Foz do Iguaçu","Cascavel","Curitiba","São Paulo"])
-    groups=st.multiselect("Segmentos",list(NICHOS.keys()),default=["Alimentação","Beleza e estética"])
-    available=[n for g in groups for n in NICHOS[g]]
-    niches=st.multiselect("Nichos específicos",available,default=available[:5])
-    a,b,c=st.columns(3)
-    pages=a.selectbox("Profundidade por pesquisa",[1,2,3],index=1,help="Até 20 resultados por página retornados pelo Google.")
-    min_rating=b.slider("Nota mínima",0.0,5.0,3.8,0.1)
-    max_queries=c.number_input("Máximo de consultas nesta rodada",1,150,15,1)
-    only_no_site=st.checkbox("Priorizar somente empresas sem site cadastrado",value=True)
-    require_phone=st.checkbox("Exigir telefone para contato",value=True)
-    combos=[(n,city) for city in cities for n in niches][:int(max_queries)]
-    st.write(f"**Consultas previstas:** {len(combos)} · **Resultados possíveis:** até {len(combos)*pages*20}")
-    if st.button("🔎 Buscar empresas",type="primary",use_container_width=True,disabled=not combos):
-        if not api_key: st.error("Adicione sua Google Places API Key na barra lateral ou nos Secrets do Streamlit.")
+    with st.container(border=True):
+        st.subheader("1. Onde procurar")
+        modo=st.radio("Abrangência",["Brasil inteiro","Por estado","Escolher cidades"],horizontal=False)
+        if modo=="Brasil inteiro":
+            st.info(f"Base: {len(CIDADES)} estados/DF · {len(todos)} cidades. Selecione uma lista menor por rodada para não estourar a cota.")
+            default=["São Paulo","Campinas","Rio de Janeiro","Curitiba","Foz do Iguaçu","Cascavel"]
+            cities=st.multiselect("Cidades desta rodada",todos,default=default)
+        elif modo=="Por estado":
+            states=st.multiselect("Estados",list(CIDADES.keys()),default=["Paraná (PR)"])
+            options=sorted({x for state in states for x in CIDADES[state]})
+            cities=st.multiselect("Cidades",options,default=options[:5])
         else:
-            found={}; errors=[]; bar=st.progress(0); status=st.empty()
+            cities=st.multiselect("Cidades",todos,default=["Foz do Iguaçu","Cascavel","Curitiba"])
+    with st.container(border=True):
+        st.subheader("2. O que procurar")
+        groups=st.multiselect("Categorias",list(NICHOS.keys()),default=["Alimentação","Beleza e estética","Lutas e artes marciais"])
+        available=[n for g in groups for n in NICHOS[g]]
+        niches=st.multiselect("Nichos",available,default=available[:5],help="Você pode marcar vários nichos dentro das categorias escolhidas.")
+    with st.expander("3. Filtros da busca (recomendado manter simples)",expanded=False):
+        pages=st.selectbox("Resultados por pesquisa",[1,2,3],index=0,help="Cada página pode trazer até 20 empresas. Mais páginas consomem mais cota.")
+        min_rating=st.slider("Nota mínima",0.0,5.0,3.8,0.1)
+        max_queries=st.select_slider("Consultas nesta rodada",options=[3,5,8,10,15,20,30],value=5)
+        only_no_site=st.checkbox("Somente empresas sem site cadastrado",value=True)
+    require_phone=True
+    combos=[(n,city) for city in cities for n in niches][:int(max_queries)]
+    st.metric("Pesquisas nesta rodada",len(combos))
+    st.caption("O filtro de telefone é obrigatório: celulares com 9 após o DDD. Telefones fixos começados por 2, 3, 4 ou 5 são descartados.")
+    if st.button("🔎 Buscar empresas",type="primary",use_container_width=True,disabled=not combos):
+        if not api_key:
+            st.error("Adicione sua Google Places API Key nos Secrets do Streamlit.")
+        else:
+            found={}; errors=[]; quota_error=False; bar=st.progress(0); status=st.empty()
             for i,(n,city) in enumerate(combos,1):
-                status.write(f"Buscando **{n}** em **{city}** — {i}/{len(combos)}")
+                status.write(f"Pesquisando {n} · {city} ({i}/{len(combos)})")
                 try:
-                    for p in google_search(api_key,f"{n} em {city}, Brasil",pages):
-                        if p.get("businessStatus") not in (None,"OPERATIONAL"): continue
-                        x=normalize(p,n,city)
+                    for place in google_search(api_key,f"{n} em {city}, Brasil",pages):
+                        if place.get("businessStatus") not in (None,"OPERATIONAL"): continue
+                        x=normalize(place,n,city)
+                        if not is_whatsapp_mobile(x.get("phone")): continue
                         found[x.get("place_id") or f"{x['name']}|{city}"]=x
-                except Exception as e: errors.append(f"{n} / {city}: {e}")
+                except Exception as e:
+                    msg=str(e)
+                    errors.append(f"{n} / {city}: {msg}")
+                    if "429" in msg or "quota" in msg.lower() or "exceeded" in msg.lower():
+                        quota_error=True
+                        break
                 bar.progress(i/len(combos))
             all_items=list(found.values())
-            filtered=[x for x in all_items if (not only_no_site or not x["website"]) and (not require_phone or x["phone"]) and (x["rating"] or 0)>=min_rating]
+            filtered=[x for x in all_items if (not only_no_site or not x["website"]) and (x["rating"] or 0)>=min_rating]
             save_leads(filtered); status.empty(); bar.empty()
-            st.success(f"{len(filtered)} oportunidades salvas de {len(all_items)} empresas recebidas.")
-            st.info("‘Sem site cadastrado’ significa que o Google não retornou um site. A empresa pode ter site fora do cadastro; confirme antes de abordar.")
-            if errors:
-                with st.expander(f"Ver {len(errors)} consultas com erro"):
+            if quota_error:
+                st.error("O Google bloqueou a busca porque a cota diária de SearchTextRequest foi atingida (erro 429). O app parou automaticamente para não repetir 14 erros nem gastar mais consultas.")
+                st.markdown("**Como resolver:** abra Google Cloud Console → APIs e serviços → Places API (New) → Cotas. Confira o limite diário de SearchTextRequest e a conta de faturamento. Se o limite for fixo do plano/projeto, aguarde a renovação da cota ou solicite aumento. Reduzir pesquisas no app ajuda a evitar novos bloqueios, mas não libera uma cota já esgotada.")
+            st.success(f"{len(filtered)} empresas com celular válido salvas de {len(all_items)} resultados recebidos.")
+            st.info("‘Sem site cadastrado’ significa que o Google não retornou um site. Confirme manualmente antes de abordar.")
+            if errors and not quota_error:
+                with st.expander(f"Ver {len(errors)} erros"):
                     for e in errors: st.warning(e)
-    st.divider(); st.subheader("Oportunidades salvas")
-    x,y,z=st.columns([2,1,1]); q=x.text_input("Filtrar empresa, cidade ou nicho"); quality=y.selectbox("Potencial mínimo",["Todos","50+","70+","85+"]); no_site=z.checkbox("Sem site cadastrado",True)
+    st.divider(); st.subheader("📌 Empresas prontas para abordar")
+    q=st.text_input("Buscar empresa, cidade ou nicho")
+    quality=st.selectbox("Potencial mínimo",["Todos","50+","70+","85+"])
+    no_site=st.checkbox("Mostrar somente sem site cadastrado",True)
     minscore={"Todos":0,"50+":50,"70+":70,"85+":85}[quality]
     rows=leads_list(q=q,no_site=no_site,min_score=minscore)
-    if not rows: st.info("Nenhuma oportunidade com esses filtros. Faça uma busca ou ajuste os filtros.")
+    if not rows: st.info("Nenhuma empresa com celular válido salva ainda. Faça uma busca ou ajuste os filtros.")
     for r in rows[:100]:
         with st.container(border=True):
-            left,mid,right=st.columns([3,2,1])
-            with left:
-                st.markdown(f"**{r['name']}**")
-                st.caption(f"{r['category'] or 'Empresa'} · {r['city'] or 'Cidade não informada'}")
-                st.write(f"⭐ {r['rating'] or '—'} · {r['reviews'] or 0} avaliações · **Potencial {r['score'] or 0}/100**")
-                st.caption(r['address'] or "Endereço não informado")
-            with mid:
-                st.write(f"Telefone: {r['phone'] or 'Não informado'}")
-                st.write(f"Site: {r['website'] or 'Não cadastrado no Google'}")
-                link=wa_link(r['phone'])
-                if link: st.markdown(f"[Abrir WhatsApp]({link})")
-                st.markdown(f"[Pesquisar Instagram]({instagram_search(r['name'],r['city'] or '')})")
-                if r['maps_url']: st.markdown(f"[Google Maps]({r['maps_url']})")
-            with right: st.write(f"**{r['status']}**")
+            st.markdown(f"**{r['name']}**")
+            st.caption(f"{r['category'] or 'Empresa'} · {r['city'] or 'Cidade não informada'} · ⭐ {r['rating'] or '—'} ({r['reviews'] or 0} avaliações)")
+            st.write(f"**Potencial:** {r['score'] or 0}/100")
+            st.write(f"**WhatsApp:** {r['phone']}")
+            st.write(f"**Site:** {r['website'] or 'Não cadastrado no Google'}")
+            st.link_button("Abrir WhatsApp",wa_link(r['phone']),use_container_width=True)
+            st.link_button("Pesquisar Instagram",instagram_search(r['name'],r['city'] or ''),use_container_width=True)
+            if r['maps_url']: st.link_button("Ver no Google Maps",r['maps_url'],use_container_width=True)
+            st.caption(f"Status: {r['status']} · {r['address'] or 'Endereço não informado'}")
 elif page=="Minha lista":
     st.title("Minha lista de empresas")
     q=st.text_input("Buscar nome, cidade ou nicho"); status=st.selectbox("Etapa",["Todos"]+STATUS); no_site=st.checkbox("Somente sem site cadastrado",False)
