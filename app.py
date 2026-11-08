@@ -3,17 +3,33 @@ import requests
 import urllib.parse
 import re
 
-st.set_page_config(page_title="Prospecção Rápida - Douwen", page_icon="⚡", layout="centered")
+st.set_page_config(page_title="Prospecção Sênior - Douwen", page_icon="🔥", layout="centered")
 
-st.title("⚡ Prospecção Rápida (Geoapify)")
-st.write("Busca empresas sem site em segundos, sem travamentos.")
+st.title("🔥 Prospecção Sênior")
+st.write("Busca rápida, com cache e mensagem pronta para enviar.")
 
 # --- CONFIGURAÇÃO DA API ---
-st.sidebar.header("🔑 Configuração")
-api_key = st.sidebar.text_input("Cole sua Geoapify API Key", type="password")
-st.sidebar.markdown("[Pegue sua chave grátis aqui](https://www.geoapify.com/)")
+# Substitua "SUA_CHAVE_AQUI" pela sua chave real do Geoapify
+API_KEY = "SUA_CHAVE_AQUI" 
 
-# --- MAPEAMENTO DE NICHO ---
+# --- CACHE (Guarda os resultados para não gastar API) ---
+@st.cache_data(ttl=3600)
+def buscar_empresas(cidade, categoria, api_key):
+    url_geo = f"https://api.geoapify.com/v1/geocode/search?text={urllib.parse.quote(cidade)}&type=city&format=json&limit=1&apiKey={api_key}"
+    res_geo = requests.get(url_geo, timeout=10)
+    if not res_geo.json().get('results'):
+        return None, "Cidade não encontrada"
+    
+    place_id = res_geo.json()['results'][0]['place_id']
+    
+    url_places = f"https://api.geoapify.com/v2/places?categories={categoria}&filter=place:{place_id}&limit=50&apiKey={api_key}"
+    res = requests.get(url_places, timeout=15)
+    data = res.json()
+    
+    empresas = [p.get('properties', {}) for p in data.get('features', []) if 'website' not in p.get('properties', {})]
+    return empresas, None
+
+# --- INTERFACE ---
 mapa_nichos = {
     "Barbearia / Salão": "service.beauty",
     "Restaurante": "catering.restaurant",
@@ -27,107 +43,79 @@ mapa_nichos = {
 
 paises = ["Brasil", "Portugal", "Estados Unidos", "Espanha", "México"]
 
-st.subheader("1. Escolha o Alvo")
 col1, col2 = st.columns(2)
 with col1:
     pais = st.selectbox("País", paises)
-    cidade = st.text_input("Cidade", placeholder="Ex: Lisboa, Miami, Cascavel...")
+    cidade = st.text_input("Cidade", placeholder="Ex: Lisboa, Miami...")
 with col2:
     nicho = st.selectbox("Nicho", list(mapa_nichos.keys()))
+    link_previa = st.text_input("Link da sua Prévia (Vercel)", placeholder="https://site.vercel.app")
 
-def limpar_telefone(tel, pais_atual):
-    if not tel:
-        return None
-    tel_limpo = re.sub(r'[^\d+]', '', tel)
-    if tel_limpo.startswith('0'):
-        tel_limpo = tel_limpo[1:]
-    if pais_atual == "Brasil" and len(tel_limpo) >= 10 and not tel_limpo.startswith('55'):
-        tel_limpo = '55' + tel_limpo
-    return tel_limpo
-
-if st.button("🔍 Buscar Empresas SEM Site", type="primary", use_container_width=True):
-    if not api_key:
-        st.error("⚠️ Cole sua Geoapify API Key na barra lateral esquerda.")
-    elif not cidade:
-        st.warning("⚠️ Digite o nome da cidade.")
+if st.button("🔍 Buscar Empresas", type="primary", use_container_width=True):
+    if not cidade:
+        st.warning("Digite uma cidade.")
+    elif "SUA_CHAVE_AQUI" in API_KEY:
+        st.error("⚠️ Configure sua API Key no código (linha 12).")
     else:
-        categoria = mapa_nichos[nicho]
-        
-        with st.spinner(f"Buscando ID da cidade de {cidade}..."):
-            try:
-                # ETAPA 1: Geocodificar a cidade para obter o place_id
-                url_geocode = f"https://api.geoapify.com/v1/geocode/search?text={urllib.parse.quote(cidade)}&type=city&format=json&limit=1&apiKey={api_key}"
-                res_geo = requests.get(url_geocode, timeout=10)
-                res_geo.raise_for_status()
-                dados_geo = res_geo.json()
+        with st.spinner("Buscando..."):
+            empresas, erro = buscar_empresas(cidade, mapa_nichos[nicho], API_KEY)
+            
+            if erro:
+                st.error(erro)
+            elif not empresas:
+                st.warning("Nenhuma empresa sem site encontrada.")
+            else:
+                st.success(f"{len(empresas)} leads encontrados!")
                 
-                if not dados_geo.get('results'):
-                    st.error(f"Cidade '{cidade}' não encontrada. Verifique o nome.")
-                    st.stop()
-                
-                place_id = dados_geo['results'][0]['place_id']
-                
-                # ETAPA 2: Buscar empresas usando o place_id
-                url_places = f"https://api.geoapify.com/v2/places?categories={categoria}&filter=place:{place_id}&limit=50&apiKey={api_key}"
-                
-                response = requests.get(url_places, timeout=15)
-                response.raise_for_status()
-                data = response.json()
-                
-                features = data.get('features', [])
-                
-                # Filtra APENAS quem não tem o campo 'website'
-                empresas_sem_site = []
-                for f in features:
-                    props = f.get('properties', {})
-                    if 'website' not in props:
-                        empresas_sem_site.append(props)
-                
-                if not empresas_sem_site:
-                    st.warning("Nenhuma empresa sem site encontrada nessa busca. Tente outra cidade ou nicho.")
-                else:
-                    st.success(f"Encontramos {len(empresas_sem_site)} empresas SEM SITE!")
+                for i, props in enumerate(empresas):
+                    nome = props.get('name', 'Sem nome')
+                    tel_raw = props.get('contact', {}).get('phone', '') or props.get('phone', '')
                     
-                    # AQUI ESTÁ A CORREÇÃO: enumerate para dar um ID único a cada empresa
-                    for i, props in enumerate(empresas_sem_site):
-                        nome = props.get('name', 'Nome não informado')
-                        tel_raw = props.get('contact', {}).get('phone', '') or props.get('phone', '')
-                        telefone = limpar_telefone(tel_raw, pais)
-                        endereco = props.get('address_line2', 'Endereço não informado')
+                    tel = re.sub(r'[^\d+]', '', tel_raw) if tel_raw else None
+                    if tel and pais == "Brasil" and len(tel) >= 10 and not tel.startswith('55'):
+                        tel = '55' + tel
                         
-                        termo_busca = urllib.parse.quote(f"{nome} {cidade}")
-                        link_insta = f"https://www.instagram.com/explore/search/keyword/?q={termo_busca}"
-                        link_maps = f"https://www.google.com/maps/search/?api=1&query={termo_busca}"
+                    endereco = props.get('address_line2', 'Endereço não informado')
+                    tem_telefone = tel is not None
+                    
+                    selo = "🔥 " if tem_telefone else "⚠️ "
+                    
+                    with st.expander(f"{selo}{nome}"):
+                        st.write(f"📍 **Endereço:** {endereco}")
                         
-                        # Mensagem
-                        if pais == "Brasil":
-                            msg = f"Oi, tudo bem? Meu nome é Douwen, trabalho criando sites. Vi o perfil do {nome} e reparei que vocês não têm um site próprio. Isso pode estar fazendo vocês perderem clientes no Google. Posso te mostrar uma ideia em 1 minuto?"
-                        elif pais == "Portugal":
-                            msg = f"Olá! O meu nome é Douwen, crio sites. Vi o perfil do {nome} e reparei que ainda não têm um site próprio. Isso pode estar a fazer-vos perder clientes. Posso mostrar uma ideia em 1 minuto?"
-                        elif pais in ["Espanha", "México"]:
-                            msg = f"¡Hola! Mi nombre es Douwen, creo sitios web. Vi el perfil de {nome} y noté que no tienen sitio web. Esto podría hacerles perder clientes. ¿Puedo mostrarles una idea en 1 minuto?"
+                        if tem_telefone:
+                            st.write(f"📞 **Telefone:** {tel}")
                         else:
-                            msg = f"Hi! My name is Douwen, I build websites. I was looking at {nome} and noticed you don't have a website yet. This might be costing you customers. Can I show you an idea in 1 minute?"
+                            st.write("📞 **Telefone:** Não informado")
+                        
+                        # --- AQUI ESTÁ A CORREÇÃO ---
+                        # Agora usamos o Google para achar o Instagram oficial
+                        query_insta_google = urllib.parse.quote(f'site:instagram.com "{nome}" "{cidade}"')
+                        link_insta = f"https://www.google.com/search?q={query_insta_google}"
+                        
+                        col_b1, col_b2, col_b3 = st.columns(3)
+                        termo_busca = urllib.parse.quote(f"{nome} {cidade}")
+                        
+                        with col_b1:
+                            st.link_button("📷 Achar Insta", link_insta, use_container_width=True)
+                        with col_b2:
+                            if tem_telefone:
+                                st.link_button("💬 WhatsApp", f"https://wa.me/{tel}", use_container_width=True)
+                        with col_b3:
+                            st.link_button("📍 Maps", f"https://www.google.com/maps/search/?api=1&query={termo_busca}", use_container_width=True)
+                        
+                        st.markdown("---")
+                        st.markdown("**Mensagem Pronta (Copie):**")
+                        
+                        texto_link = f"\n\nDá uma olhada: {link_previa}" if link_previa else ""
+                        
+                        if pais == "Brasil":
+                            msg = f"Oi, tudo bem? Meu nome é Douwen, trabalho criando sites. Vi o perfil do {nome} e reparei que vocês não têm um site próprio. Isso pode estar fazendo vocês perderem clientes. Posso te mostrar uma ideia?{texto_link}"
+                        elif pais == "Portugal":
+                            msg = f"Olá! O meu nome é Douwen, crio sites. Vi o perfil do {nome} e reparei que ainda não têm um site próprio. Posso mostrar uma ideia?{texto_link}"
+                        elif pais in ["Espanha", "México"]:
+                            msg = f"¡Hola! Mi nombre es Douwen, creo sitios web. Vi el perfil de {nome} y noté que no tienen sitio web. ¿Puedo mostrarles una idea?{texto_link}"
+                        else:
+                            msg = f"Hi! My name is Douwen, I build websites. I was looking at {nome} and noticed you don't have a website yet. Can I show you an idea?{texto_link}"
 
-                        with st.expander(f"🏢 {nome}"):
-                            st.write(f"📍 **Endereço:** {endereco}")
-                            st.write(f"📞 **Telefone:** {telefone if telefone else 'Não informado'}")
-                            
-                            col_btn1, col_btn2, col_btn3 = st.columns(3)
-                            with col_btn1:
-                                st.link_button("📷 Instagram", link_insta, use_container_width=True)
-                            with col_btn2:
-                                if telefone:
-                                    st.link_button("💬 WhatsApp", f"https://wa.me/{telefone}", use_container_width=True)
-                                else:
-                                    # AQUI ESTÁ A SEGUNDA PARTE DA CORREÇÃO: key=f"sem_zap_{i}"
-                                    st.button("💬 Sem Zap", disabled=True, use_container_width=True, key=f"sem_zap_{i}")
-                            with col_btn3:
-                                st.link_button("📍 Maps", link_maps, use_container_width=True)
-                            
-                            st.markdown("---")
-                            st.markdown("**Mensagem de Abordagem:**")
-                            st.code(msg, language="text")
-                            
-            except Exception as e:
-                st.error(f"Erro na busca: {e}. Verifique sua API Key e o nome da cidade.")
+                        st.code(msg, language="text")
