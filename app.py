@@ -3,135 +3,101 @@ import requests
 import urllib.parse
 import re
 
-# Configuração da página
-st.set_page_config(page_title="Prospecção Global - Douwen", page_icon="🌎", layout="centered")
+st.set_page_config(page_title="Prospecção Rápida - Douwen", page_icon="⚡", layout="centered")
 
-st.title("🌎 Prospecção Inteligente")
-st.write("Busca empresas sem site, com contato direto no WhatsApp e Instagram.")
+st.title("⚡ Prospecção Rápida (Geoapify)")
+st.write("Busca empresas sem site em segundos, sem travamentos.")
 
-# --- LISTA DE CIDADES POR PAÍS ---
-cidades_por_pais = {
-    "Brasil": ["São Paulo", "Rio de Janeiro", "Belo Horizonte", "Curitiba", "Porto Alegre", "Salvador", "Recife", "Fortaleza", "Brasília", "Goiânia", "Campinas", "Manaus"],
-    "Portugal": ["Lisboa", "Porto", "Braga", "Coimbra", "Faro", "Funchal"],
-    "Estados Unidos": ["Miami", "New York", "Los Angeles", "Chicago", "Houston", "Orlando", "Boston"],
-    "Espanha": ["Madrid", "Barcelona", "Valencia", "Sevilha", "Bilbao"],
-    "México": ["Cidade do México", "Guadalajara", "Monterrey", "Cancún"]
-}
+# --- CONFIGURAÇÃO DA API (Barra Lateral) ---
+st.sidebar.header("🔑 Configuração")
+api_key = st.sidebar.text_input("Cole sua Geoapify API Key", type="password")
+st.sidebar.markdown("[Pegue sua chave grátis aqui](https://www.geoapify.com/)")
 
-# Mapeamento de Nicho para a "tag" do OpenStreetMap
+# --- MAPEAMENTO DE NICHO PARA GEOAPIFY ---
+# O Geoapify usa categorias específicas
 mapa_nichos = {
-    "Barbearia": 'shop="hairdresser"',
-    "Restaurante": 'amenity="restaurant"',
-    "Hamburgueria": 'amenity="fast_food"',
-    "Pet Shop": 'shop="pet"',
-    "Clínica de Estética": 'shop="beauty"',
-    "Academia": 'leisure="fitness_centre"',
-    "Padaria": 'shop="bakery"',
-    "Salão de Beleza": 'shop="hairdresser"',
-    "Oficina Mecânica": 'shop="car_repair"'
+    "Barbearia / Salão": "service.beauty",
+    "Restaurante": "catering.restaurant",
+    "Hamburgueria / Lanches": "catering.fast_food",
+    "Pet Shop": "commercial.pet",
+    "Clínica de Estética": "service.beauty",
+    "Academia": "sport.fitness",
+    "Padaria": "commercial.food.bakery",
+    "Oficina Mecânica": "service.vehicle.repair"
 }
 
-# --- LISTA DE SERVIDORES ALTERNATIVOS (A CORREÇÃO DO ERRO 502) ---
-LISTA_ENDPOINTS = [
-    "https://overpass.private.coffee/api/interpreter", # Preferido: mais estável
-    "https://overpass-api.de/api/interpreter",         # Servidor principal
-    "https://overpass.kumi.systems/api/interpreter",   # Alternativo
-    "https://maps.mail.ru/osm/tools/overpass/api/interpreter" # Último recurso
-]
+paises = ["Brasil", "Portugal", "Estados Unidos", "Espanha", "México"]
 
-# --- INTERFACE DE BUSCA ---
 st.subheader("1. Escolha o Alvo")
-
 col1, col2 = st.columns(2)
 with col1:
-    pais = st.selectbox("País", list(cidades_por_pais.keys()))
-    cidade_opcoes = cidades_por_pais[pais] + ["Outra (Digitar)"]
-    cidade_selecionada = st.selectbox("Cidade", cidade_opcoes)
-    
-    if cidade_selecionada == "Outra (Digitar)":
-        cidade = st.text_input("Digite a cidade", placeholder="Ex: Santos")
-    else:
-        cidade = cidade_selecionada
-
+    pais = st.selectbox("País", paises)
+    cidade = st.text_input("Cidade", placeholder="Ex: Lisboa, Miami, São Paulo...")
 with col2:
     nicho = st.selectbox("Nicho", list(mapa_nichos.keys()))
 
-# --- FUNÇÃO PARA LIMPAR O TELEFONE ---
-def limpar_telefone(tel):
+def limpar_telefone(tel, pais_atual):
     if not tel:
         return None
     tel_limpo = re.sub(r'[^\d+]', '', tel)
     if tel_limpo.startswith('0'):
         tel_limpo = tel_limpo[1:]
-    # Adiciona 55 se for Brasil e o número parecer local
-    if pais == "Brasil" and len(tel_limpo) >= 10 and not tel_limpo.startswith('55'):
+    if pais_atual == "Brasil" and len(tel_limpo) >= 10 and not tel_limpo.startswith('55'):
         tel_limpo = '55' + tel_limpo
     return tel_limpo
 
-# --- BOTÃO DE BUSCA ---
 if st.button("🔍 Buscar Empresas SEM Site", type="primary", use_container_width=True):
-    if not cidade:
-        st.warning("⚠️ Por favor, selecione ou digite uma cidade.")
+    if not api_key:
+        st.error("⚠️ Cole sua Geoapify API Key na barra lateral esquerda.")
+    elif not cidade:
+        st.warning("⚠️ Digite o nome da cidade.")
     else:
-        tag_nicho = mapa_nichos[nicho]
-        query = f"""
-        [out:json][timeout:60];
-        area["name"="{cidade}"]->.a;
-        (
-          nwr[{tag_nicho}][!"website"][!"contact:website"](area.a);
-        );
-        out center tags 50;
-        """
+        categoria = mapa_nichos[nicho]
         
-        headers = {
-            "User-Agent": "ProspeccaoDouwen/1.0 (contato: seu-email@exemplo.com)"
-        }
+        # A busca do Geoapify usa a cidade como filtro geográfico
+        # O limit=50 traz até 50 resultados
+        url = f"https://api.geoapify.com/v2/places?categories={categoria}&filter=place:{cidade}&limit=50&apiKey={api_key}"
         
-        # --- LÓGICA DE TENTATIVA E ERRO (RETRY) ---
-        dados = None
-        erro_final = None
-        
-        with st.spinner(f"Buscando {nicho}s em {cidade}... (tentando servidores alternativos se necessário)"):
-            for endpoint in LISTA_ENDPOINTS:
-                try:
-                    resposta = requests.post(endpoint, data={"data": query}, headers=headers, timeout=30)
-                    # Se o servidor retornar 502, 503 ou 504, a exceção é lançada e passamos para o próximo
-                    resposta.raise_for_status()
-                    dados = resposta.json()
-                    break # Se funcionou, sai do loop
-                except Exception as e:
-                    erro_final = e
-                    # Continua para o próximo endpoint da lista
-                    continue
-            
-            if dados is None:
-                st.error(f"Todos os servidores falharam. Último erro: {erro_final}. Tente novamente em alguns minutos.")
-            else:
-                elementos = dados.get("elements", [])
+        with st.spinner(f"Buscando {nicho}s em {cidade}..."):
+            try:
+                response = requests.get(url, timeout=10)
+                response.raise_for_status()
+                data = response.json()
                 
-                if not elementos:
-                    st.warning("Nenhuma empresa sem site encontrada. Tente outra cidade ou nicho.")
+                features = data.get('features', [])
+                
+                # Filtra APENAS quem não tem o campo 'website'
+                empresas_sem_site = []
+                for f in features:
+                    props = f.get('properties', {})
+                    if 'website' not in props and 'contact' not in props.get('datasource', {}).get('raw', {}):
+                        empresas_sem_site.append(props)
+                
+                if not empresas_sem_site:
+                    st.warning("Nenhuma empresa sem site encontrada nessa busca. Tente outra cidade ou nicho.")
                 else:
-                    st.success(f"Encontramos {len(elementos)} empresas sem site!")
+                    st.success(f"Encontramos {len(empresas_sem_site)} empresas SEM SITE!")
                     
-                    for el in elementos:
-                        tags = el.get("tags", {})
-                        nome = tags.get("name", "Nome não informado")
-                        telefone_raw = tags.get("phone", tags.get("contact:phone", ""))
-                        telefone = limpar_telefone(telefone_raw)
+                    for props in empresas_sem_site:
+                        nome = props.get('name', 'Nome não informado')
                         
-                        rua = tags.get("addr:street", "")
-                        numero = tags.get("addr:housenumber", "")
-                        endereco = f"{rua}, {numero}" if rua else "Endereço não informado"
+                        # Tenta pegar o telefone de várias formas que o Geoapify retorna
+                        tel_raw = props.get('contact', {}).get('phone', '') or props.get('phone', '')
+                        telefone = limpar_telefone(tel_raw, pais)
                         
+                        # Endereço
+                        endereco = props.get('address_line2', 'Endereço não informado')
+                        
+                        # Links
                         termo_busca = urllib.parse.quote(f"{nome} {cidade}")
                         link_insta = f"https://www.instagram.com/explore/search/keyword/?q={termo_busca}"
                         link_maps = f"https://www.google.com/maps/search/?api=1&query={termo_busca}"
                         
+                        # Mensagem
                         if pais == "Brasil":
                             msg = f"Oi, tudo bem? Meu nome é Douwen, trabalho criando sites. Vi o perfil do {nome} e reparei que vocês não têm um site próprio. Isso pode estar fazendo vocês perderem clientes no Google. Posso te mostrar uma ideia em 1 minuto?"
                         elif pais == "Portugal":
-                            msg = f"Olá! O meu nome é Douwen, crio sites. Vi o perfil da {nome} e reparei que ainda não têm um site próprio. Isso pode estar a fazer-vos perder clientes. Posso mostrar uma ideia em 1 minuto?"
+                            msg = f"Olá! O meu nome é Douwen, crio sites. Vi o perfil do {nome} e reparei que ainda não têm um site próprio. Isso pode estar a fazer-vos perder clientes. Posso mostrar uma ideia em 1 minuto?"
                         elif pais in ["Espanha", "México"]:
                             msg = f"¡Hola! Mi nombre es Douwen, creo sitios web. Vi el perfil de {nome} y noté que no tienen sitio web. Esto podría hacerles perder clientes. ¿Puedo mostrarles una idea en 1 minuto?"
                         else:
@@ -139,21 +105,22 @@ if st.button("🔍 Buscar Empresas SEM Site", type="primary", use_container_widt
 
                         with st.expander(f"🏢 {nome}"):
                             st.write(f"📍 **Endereço:** {endereco}")
-                            st.write(f"📞 **Telefone:** {telefone if telefone else 'Não informado no mapa'}")
+                            st.write(f"📞 **Telefone:** {telefone if telefone else 'Não informado'}")
                             
                             col_btn1, col_btn2, col_btn3 = st.columns(3)
-                            
                             with col_btn1:
                                 st.link_button("📷 Instagram", link_insta, use_container_width=True)
                             with col_btn2:
                                 if telefone:
-                                    link_whatsapp = f"https://wa.me/{telefone}"
-                                    st.link_button("💬 WhatsApp", link_whatsapp, use_container_width=True)
+                                    st.link_button("💬 WhatsApp", f"https://wa.me/{telefone}", use_container_width=True)
                                 else:
-                                    st.button("💬 Sem Zap", disabled=True, use_container_width=True, help="Telefone não encontrado no mapa")
+                                    st.button("💬 Sem Zap", disabled=True, use_container_width=True)
                             with col_btn3:
                                 st.link_button("📍 Maps", link_maps, use_container_width=True)
                             
                             st.markdown("---")
-                            st.markdown("**Mensagem de Abordagem (Copie e Cole):**")
+                            st.markdown("**Mensagem de Abordagem:**")
                             st.code(msg, language="text")
+                            
+            except Exception as e:
+                st.error(f"Erro na busca: {e}. Verifique sua API Key e o nome da cidade.")
