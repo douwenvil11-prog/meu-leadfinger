@@ -8,13 +8,12 @@ st.set_page_config(page_title="Prospecção Rápida - Douwen", page_icon="⚡", 
 st.title("⚡ Prospecção Rápida (Geoapify)")
 st.write("Busca empresas sem site em segundos, sem travamentos.")
 
-# --- CONFIGURAÇÃO DA API (Barra Lateral) ---
+# --- CONFIGURAÇÃO DA API ---
 st.sidebar.header("🔑 Configuração")
 api_key = st.sidebar.text_input("Cole sua Geoapify API Key", type="password")
 st.sidebar.markdown("[Pegue sua chave grátis aqui](https://www.geoapify.com/)")
 
-# --- MAPEAMENTO DE NICHO PARA GEOAPIFY ---
-# O Geoapify usa categorias específicas
+# --- MAPEAMENTO DE NICHO ---
 mapa_nichos = {
     "Barbearia / Salão": "service.beauty",
     "Restaurante": "catering.restaurant",
@@ -32,7 +31,7 @@ st.subheader("1. Escolha o Alvo")
 col1, col2 = st.columns(2)
 with col1:
     pais = st.selectbox("País", paises)
-    cidade = st.text_input("Cidade", placeholder="Ex: Lisboa, Miami, São Paulo...")
+    cidade = st.text_input("Cidade", placeholder="Ex: Lisboa, Miami, Cascavel...")
 with col2:
     nicho = st.selectbox("Nicho", list(mapa_nichos.keys()))
 
@@ -54,13 +53,25 @@ if st.button("🔍 Buscar Empresas SEM Site", type="primary", use_container_widt
     else:
         categoria = mapa_nichos[nicho]
         
-        # A busca do Geoapify usa a cidade como filtro geográfico
-        # O limit=50 traz até 50 resultados
-        url = f"https://api.geoapify.com/v2/places?categories={categoria}&filter=place:{cidade}&limit=50&apiKey={api_key}"
-        
-        with st.spinner(f"Buscando {nicho}s em {cidade}..."):
+        with st.spinner(f"Buscando ID da cidade de {cidade}..."):
             try:
-                response = requests.get(url, timeout=10)
+                # ETAPA 1: Geocodificar a cidade para obter o place_id
+                url_geocode = f"https://api.geoapify.com/v1/geocode/search?text={urllib.parse.quote(cidade)}&type=city&format=json&limit=1&apiKey={api_key}"
+                res_geo = requests.get(url_geocode, timeout=10)
+                res_geo.raise_for_status()
+                dados_geo = res_geo.json()
+                
+                if not dados_geo.get('results'):
+                    st.error(f"Cidade '{cidade}' não encontrada. Verifique o nome.")
+                    st.stop()
+                
+                place_id = dados_geo['results'][0]['place_id']
+                
+                # ETAPA 2: Buscar empresas usando o place_id
+                st.spinner(f"Buscando {nicho}s em {cidade}...")
+                url_places = f"https://api.geoapify.com/v2/places?categories={categoria}&filter=place:{place_id}&limit=50&apiKey={api_key}"
+                
+                response = requests.get(url_places, timeout=15)
                 response.raise_for_status()
                 data = response.json()
                 
@@ -70,7 +81,7 @@ if st.button("🔍 Buscar Empresas SEM Site", type="primary", use_container_widt
                 empresas_sem_site = []
                 for f in features:
                     props = f.get('properties', {})
-                    if 'website' not in props and 'contact' not in props.get('datasource', {}).get('raw', {}):
+                    if 'website' not in props:
                         empresas_sem_site.append(props)
                 
                 if not empresas_sem_site:
@@ -80,15 +91,10 @@ if st.button("🔍 Buscar Empresas SEM Site", type="primary", use_container_widt
                     
                     for props in empresas_sem_site:
                         nome = props.get('name', 'Nome não informado')
-                        
-                        # Tenta pegar o telefone de várias formas que o Geoapify retorna
                         tel_raw = props.get('contact', {}).get('phone', '') or props.get('phone', '')
                         telefone = limpar_telefone(tel_raw, pais)
-                        
-                        # Endereço
                         endereco = props.get('address_line2', 'Endereço não informado')
                         
-                        # Links
                         termo_busca = urllib.parse.quote(f"{nome} {cidade}")
                         link_insta = f"https://www.instagram.com/explore/search/keyword/?q={termo_busca}"
                         link_maps = f"https://www.google.com/maps/search/?api=1&query={termo_busca}"
