@@ -68,7 +68,6 @@ if st.button("🔍 Buscar Empresas SEM Site", type="primary", use_container_widt
                 place_id = dados_geo['results'][0]['place_id']
                 
                 # ETAPA 2: Buscar empresas usando o place_id
-                st.spinner(f"Buscando {nicho}s em {cidade}...")
                 url_places = f"https://api.geoapify.com/v2/places?categories={categoria}&filter=place:{place_id}&limit=50&apiKey={api_key}"
                 
                 response = requests.get(url_places, timeout=15)
@@ -89,7 +88,8 @@ if st.button("🔍 Buscar Empresas SEM Site", type="primary", use_container_widt
                 else:
                     st.success(f"Encontramos {len(empresas_sem_site)} empresas SEM SITE!")
                     
-                    for props in empresas_sem_site:
+                    # AQUI ESTÁ A CORREÇÃO: enumerate para dar um ID único a cada empresa
+                    for i, props in enumerate(empresas_sem_site):
                         nome = props.get('name', 'Nome não informado')
                         tel_raw = props.get('contact', {}).get('phone', '') or props.get('phone', '')
                         telefone = limpar_telefone(tel_raw, pais)
@@ -120,7 +120,8 @@ if st.button("🔍 Buscar Empresas SEM Site", type="primary", use_container_widt
                                 if telefone:
                                     st.link_button("💬 WhatsApp", f"https://wa.me/{telefone}", use_container_width=True)
                                 else:
-                                    st.button("💬 Sem Zap", disabled=True, use_container_width=True)
+                                    # AQUI ESTÁ A SEGUNDA PARTE DA CORREÇÃO: key=f"sem_zap_{i}"
+                                    st.button("💬 Sem Zap", disabled=True, use_container_width=True, key=f"sem_zap_{i}")
                             with col_btn3:
                                 st.link_button("📍 Maps", link_maps, use_container_width=True)
                             
