@@ -1,95 +1,100 @@
 import streamlit as st
-import googlemaps
+import requests
 import urllib.parse
 
-# Configuração da página (Mobile Friendly)
-st.set_page_config(page_title="Prospecção Global - Douwen", page_icon="🌎", layout="centered")
+st.set_page_config(page_title="Prospecção OSM - Douwen", page_icon="🌎", layout="centered")
+st.title("🌎 Prospecção Global (OpenStreetMap)")
+st.write("Busca empresas sem site usando dados abertos e gratuitos.")
 
-st.title("🌎 Prospecção Inteligente")
-st.write("Busca empresas no Google Maps e filtra APENAS as que NÃO têm site.")
+# Mapeamento de Nicho para a "tag" do OpenStreetMap
+# O OSM usa tags específicas. Ex: Restaurante = amenity=restaurant
+mapa_nichos = {
+    "Barbearia": 'shop="hairdresser"',
+    "Restaurante": 'amenity="restaurant"',
+    "Hamburgueria": 'amenity="fast_food"',
+    "Pet Shop": 'shop="pet"',
+    "Clínica de Estética": 'shop="beauty"',
+    "Academia": 'leisure="fitness_centre"',
+    "Padaria": 'shop="bakery"',
+    "Salão de Beleza": 'shop="hairdresser"',
+    "Oficina Mecânica": 'shop="car_repair"'
+}
 
-# --- CONFIGURAÇÃO DA API (Barra Lateral) ---
-st.sidebar.header("⚙️ Configuração")
-api_key = st.sidebar.text_input("Insira sua Google Maps API Key", type="password")
+pais = st.selectbox("País", ["Brasil", "Portugal", "Espanha", "Estados Unidos", "México"])
+nicho = st.selectbox("Nicho", list(mapa_nichos.keys()))
+cidade = st.text_input("Cidade", placeholder="Ex: São Paulo, Lisboa, Miami...")
 
-# --- OPÇÕES DE BUSCA ---
-st.subheader("1. Escolha o Alvo")
-
-paises = ["Brasil", "Portugal", "Espanha", "Estados Unidos", "México", "Itália", "França"]
-nichos = ["Barbearia", "Restaurante", "Hamburgueria", "Pet Shop", "Clínica de Estética", "Academia", "Padaria", "Lanchonete", "Salão de Beleza", "Oficina Mecânica"]
-
-col1, col2 = st.columns(2)
-with col1:
-    pais = st.selectbox("País", paises)
-    nicho = st.selectbox("Nicho", nichos)
-with col2:
-    # Campo de texto livre para a cidade, permitindo buscar em qualquer lugar
-    cidade = st.text_input("Cidade", placeholder="Ex: Miami, Lisboa, São Paulo...")
-
-# --- BOTÃO DE BUSCA ---
 if st.button("🔍 Buscar Empresas SEM Site", type="primary", use_container_width=True):
-    
-    if not api_key:
-        st.error("⚠️ Por favor, insira sua Google Maps API Key na barra lateral esquerda para buscar.")
-    elif not cidade:
-        st.warning("⚠️ Por favor, digite o nome da cidade.")
+    if not cidade:
+        st.warning("Digite uma cidade.")
     else:
-        try:
-            with st.spinner(f"Buscando {nicho}s em {cidade}..."):
-                gmaps = googlemaps.Client(key=api_key)
-                # Monta a query de busca (ex: "Barbearia in Miami, Estados Unidos")
-                query = f"{nicho} in {cidade}, {pais}"
+        # Monta a query do Overpass. 
+        # A linha principal é: (node ou way ou relation) com a tag do nicho e SEM a tag "website"
+        tag_nicho = mapa_nichos[nicho]
+        # O [!"website"] significa "não tem o campo website"
+        query = f"""
+        [out:json][timeout:60];
+        area["name"="{cidade}"]->.a;
+        (
+          nwr[{tag_nicho}][!"website"][!"contact:website"](area.a);
+        );
+        out center tags 50;
+        """
+        
+        # A Overpass exige um User-Agent identificável
+        headers = {
+            "User-Agent": "ProspeccaoDouwen/1.0 (contato: seu-email@exemplo.com)"
+        }
+        
+        with st.spinner(f"Buscando {nicho}s em {cidade}..."):
+            try:
+                # Faz a requisição POST para a Overpass API
+                resposta = requests.post(
+                    "https://overpass-api.de/api/interpreter",
+                    data={"data": query},
+                    headers=headers,
+                    timeout=90
+                )
+                resposta.raise_for_status()
+                dados = resposta.json()
                 
-                # Faz a busca na API do Google
-                places_result = gmaps.places(query=query)
+                elementos = dados.get("elements", [])
                 
-                empresas_encontradas = 0
-                
-                if places_result['results']:
-                    # Aqui está o segredo: Filtra apenas quem NÃO tem website
-                    for place in places_result['results']:
-                        if 'website' not in place:
-                            empresas_encontradas += 1
-                            nome_empresa = place.get('name')
-                            endereco = place.get('formatted_address', 'Endereço não informado')
-                            telefone = place.get('formatted_phone_number', 'Sem telefone')
-                            
-                            # Criação dos Links (Instagram e Maps)
-                            termo_busca = urllib.parse.quote(f"{nome_empresa} {cidade}")
-                            link_insta = f"https://www.instagram.com/explore/search/keyword/?q={termo_busca}"
-                            link_maps = f"https://www.google.com/maps/search/?api=1&query={termo_busca}"
-
-                            # --- CRIAÇÃO DA MENSAGEM HUMANIZADA (POR IDIOMA) ---
-                            if pais == "Brasil":
-                                msg_gancho = f"Oi, tudo bem? Meu nome é Douwen, trabalho criando sites. Vi o perfil do {nome_empresa} e reparei que vocês não têm um site próprio. Isso pode estar fazendo vocês perderem clientes no Google. Posso te mostrar uma ideia em 1 minuto?"
-                            elif pais == "Portugal":
-                                msg_gancho = f"Olá! O meu nome é Douwen, crio sites para empresas. Vi o perfil da {nome_empresa} e reparei que ainda não têm um site próprio. Isso pode estar a fazer-vos perder clientes. Posso mostrar uma ideia em 1 minuto?"
-                            elif pais in ["Espanha", "México"]:
-                                msg_gancho = f"¡Hola! Mi nombre es Douwen, creo sitios web. Vi el perfil de {nome_empresa} y noté que no tienen sitio web. Esto podría hacerles perder clientes. ¿Puedo mostrarles una idea en 1 minuto?"
-                            else: # Inglês (EUA, Itália, França, etc. se for falar inglês)
-                                msg_gancho = f"Hi! My name is Douwen, I build websites. I was looking at {nome_empresa} and noticed you don't have a website yet. This might be costing you customers. Can I show you an idea in 1 minute?"
-
-                            # --- EXIBIÇÃO DO CLIENTE NA TELA ---
-                            with st.expander(f"🏢 {nome_empresa}", expanded=True):
-                                st.write(f"📍 **Endereço:** {endereco}")
-                                st.write(f"📞 **Telefone:** {telefone}")
-                                
-                                # Botões lado a lado (Não recarregam a página)
-                                col_btn1, col_btn2 = st.columns(2)
-                                with col_btn1:
-                                    st.link_button("📷 Buscar no Instagram", link_insta, use_container_width=True)
-                                with col_btn2:
-                                    st.link_button("📍 Ver no Maps", link_maps, use_container_width=True)
-                                
-                                st.markdown("---")
-                                st.markdown("**Mensagem de Abordagem (Clique no ícone de copiar):**")
-                                # Caixa de texto com botão de copiar nativo
-                                st.code(msg_gancho, language="text")
-                                
-                if empresas_encontradas == 0:
-                    st.warning("Nenhuma empresa sem site foi encontrada nessa busca. Tente outro nicho ou cidade.")
+                if not elementos:
+                    st.warning("Nenhuma empresa sem site encontrada. Tente outra cidade ou nicho.")
                 else:
-                    st.success(f"Busca concluída! Encontramos {empresas_encontradas} empresas sem site.")
-
-        except Exception as e:
-            st.error(f"Erro na busca: Verifique se sua API Key está correta e se o Google Places API está ativado. Detalhe do erro: {e}")
+                    st.success(f"Encontramos {len(elementos)} empresas sem site!")
+                    
+                    for el in elementos:
+                        tags = el.get("tags", {})
+                        nome = tags.get("name", "Nome não informado")
+                        telefone = tags.get("phone", tags.get("contact:phone", "Sem telefone"))
+                        
+                        # Monta um endereço simples a partir das tags
+                        rua = tags.get("addr:street", "")
+                        numero = tags.get("addr:housenumber", "")
+                        endereco = f"{rua}, {numero}" if rua else "Endereço não informado"
+                        
+                        # Links
+                        termo_busca = urllib.parse.quote(f"{nome} {cidade}")
+                        link_insta = f"https://www.instagram.com/explore/search/keyword/?q={termo_busca}"
+                        link_maps = f"https://www.google.com/maps/search/?api=1&query={termo_busca}"
+                        
+                        # Mensagem (mesma lógica de país que você já tem)
+                        msg = f"Oi, tudo bem? Meu nome é Douwen, trabalho criando sites. Vi o perfil do {nome} e reparei que vocês não têm um site próprio. Isso pode estar fazendo vocês perderem clientes no Google. Posso te mostrar uma ideia em 1 minuto?"
+                        
+                        with st.expander(f"🏢 {nome}"):
+                            st.write(f"📍 **Endereço:** {endereco}")
+                            st.write(f"📞 **Telefone:** {telefone}")
+                            
+                            col1, col2 = st.columns(2)
+                            with col1:
+                                st.link_button("📷 Instagram", link_insta, use_container_width=True)
+                            with col2:
+                                st.link_button("📍 Maps", link_maps, use_container_width=True)
+                            
+                            st.markdown("**Mensagem:**")
+                            st.code(msg, language="text")
+                            
+            except Exception as e:
+                st.error(f"Erro na busca: {e}")
