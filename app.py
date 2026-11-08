@@ -8,9 +8,12 @@ st.set_page_config(page_title="Prospecção Sênior - Douwen", page_icon="🔥",
 st.title("🔥 Prospecção Sênior")
 st.write("Busca rápida, com cache e mensagem pronta para enviar.")
 
-# --- CONFIGURAÇÃO DA API ---
-# Substitua "SUA_CHAVE_AQUI" pela sua chave real do Geoapify
-API_KEY = "SUA_CHAVE_AQUI" 
+# --- CONFIGURAÇÃO DA API (Lendo do Cofre st.secrets) ---
+try:
+    API_KEY = st.secrets["GEOAPIFY_KEY"]
+except KeyError:
+    st.error("⚠️ Chave 'GEOAPIFY_KEY' não encontrada. Configure-a nos Secrets do Streamlit.")
+    st.stop() # Para o app se a chave não existir
 
 # --- CACHE (Guarda os resultados para não gastar API) ---
 @st.cache_data(ttl=3600)
@@ -54,8 +57,6 @@ with col2:
 if st.button("🔍 Buscar Empresas", type="primary", use_container_width=True):
     if not cidade:
         st.warning("Digite uma cidade.")
-    elif "SUA_CHAVE_AQUI" in API_KEY:
-        st.error("⚠️ Configure sua API Key no código (linha 12).")
     else:
         with st.spinner("Buscando..."):
             empresas, erro = buscar_empresas(cidade, mapa_nichos[nicho], API_KEY)
@@ -80,7 +81,8 @@ if st.button("🔍 Buscar Empresas", type="primary", use_container_width=True):
                     
                     selo = "🔥 " if tem_telefone else "⚠️ "
                     
-                    with st.expander(f"{selo}{nome}"):
+                    # Adicionei um key único no expander também, para evitar erros de duplicidade
+                    with st.expander(f"{selo}{nome}", expanded=False):
                         st.write(f"📍 **Endereço:** {endereco}")
                         
                         if tem_telefone:
@@ -88,8 +90,7 @@ if st.button("🔍 Buscar Empresas", type="primary", use_container_width=True):
                         else:
                             st.write("📞 **Telefone:** Não informado")
                         
-                        # --- AQUI ESTÁ A CORREÇÃO ---
-                        # Agora usamos o Google para achar o Instagram oficial
+                        # Busca do Instagram via Google (Mais seguro e não quebra)
                         query_insta_google = urllib.parse.quote(f'site:instagram.com "{nome}" "{cidade}"')
                         link_insta = f"https://www.google.com/search?q={query_insta_google}"
                         
